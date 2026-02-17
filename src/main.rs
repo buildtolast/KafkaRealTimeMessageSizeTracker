@@ -290,6 +290,18 @@ async fn main() -> std::io::Result<()> {
             )
             .route("/api/broker", web::get().to(handlers::broker::get_broker))
             .route("/api/broker", web::post().to(handlers::broker::set_broker))
+            .route(
+                "/api/browse/{topic}",
+                web::get().to(handlers::browse::browse_messages),
+            )
+            .route(
+                "/api/browse/{topic}/download/{partition}/{offset}",
+                web::get().to(handlers::browse::download_message),
+            )
+            .route(
+                "/api/snapshot",
+                web::get().to(handlers::browse::get_global_snapshot),
+            )
             .route("/ws/live", web::get().to(handlers::ws::ws_handler))
     })
     .bind(&bind_addr)?

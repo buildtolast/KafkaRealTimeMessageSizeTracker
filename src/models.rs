@@ -156,6 +156,100 @@ pub struct WsClientMessage {
     pub topics: Option<Vec<String>>,
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//   HISTORICAL MESSAGE BROWSER TYPES
+// ═══════════════════════════════════════════════════════════════════
+
+/// A single historical message fetched from Kafka for browsing.
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoricalMessage {
+    pub topic: String,
+    pub partition: i32,
+    pub offset: i64,
+    pub timestamp: DateTime<Utc>,
+    pub size_bytes: usize,
+    /// Key: auto-detected as UTF-8 or base64.
+    pub key: Option<MessagePayload>,
+    /// Value preview: first 1KB, auto-detected as UTF-8 or base64.
+    pub value_preview: Option<MessagePayload>,
+    /// Whether the value was truncated (original > 1KB).
+    pub value_truncated: bool,
+    /// Full value size in bytes.
+    pub value_size: usize,
+    /// Kafka message headers.
+    pub headers: Vec<MessageHeader>,
+}
+
+/// Representation of a message key or value payload with encoding info.
+#[derive(Debug, Clone, Serialize)]
+pub struct MessagePayload {
+    /// "utf8" or "base64"
+    pub encoding: String,
+    /// The encoded data.
+    pub data: String,
+}
+
+/// A single Kafka message header.
+#[derive(Debug, Clone, Serialize)]
+pub struct MessageHeader {
+    pub key: String,
+    /// Header value (base64-encoded since headers are raw bytes).
+    pub value: Option<String>,
+}
+
+/// Response from the browse messages endpoint.
+#[derive(Debug, Serialize)]
+pub struct BrowseMessagesResponse {
+    pub topic: String,
+    pub messages: Vec<HistoricalMessage>,
+    /// Pagination cursor: for each partition, the next offset to fetch.
+    pub next_offsets: Vec<PartitionOffset>,
+    /// Whether there are potentially more messages to fetch.
+    pub has_more: bool,
+}
+
+/// Partition + offset pair for pagination.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartitionOffset {
+    pub partition: i32,
+    pub offset: i64,
+}
+
+/// Query parameters for GET /api/browse/{topic}
+#[derive(Debug, Deserialize)]
+pub struct BrowseQueryParams {
+    pub partition: Option<i32>,
+    pub offset: Option<i64>,
+    /// ISO 8601 timestamp (used if offset is not provided).
+    pub timestamp: Option<String>,
+    /// Max messages to return (default 50, max 100).
+    pub limit: Option<usize>,
+}
+
+/// Per-topic snapshot data point at a historical timestamp.
+#[derive(Debug, Serialize)]
+pub struct TopicSnapshot {
+    pub topic: String,
+    /// The closest HistoryDataPoint to the requested timestamp.
+    pub data_point: Option<HistoryDataPoint>,
+    /// How far (in seconds) the actual data point is from the requested timestamp.
+    pub offset_seconds: Option<i64>,
+}
+
+/// Response for a global dashboard snapshot.
+#[derive(Debug, Serialize)]
+pub struct GlobalSnapshotResponse {
+    pub requested_timestamp: DateTime<Utc>,
+    pub topics: Vec<TopicSnapshot>,
+}
+
+/// Query parameters for GET /api/snapshot
+#[derive(Debug, Deserialize)]
+pub struct SnapshotQueryParams {
+    /// ISO 8601 timestamp.
+    pub timestamp: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +338,78 @@ mod tests {
         let decoded: HistoryDataPoint = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.message_count, 60);
         assert_eq!(decoded.min_bytes, 128);
+    }
+
+    #[test]
+    fn test_historical_message_serialization() {
+        let msg = HistoricalMessage {
+            topic: "orders".into(),
+            partition: 0,
+            offset: 42,
+            timestamp: Utc::now(),
+            size_bytes: 1024,
+            key: Some(MessagePayload {
+                encoding: "utf8".into(),
+                data: "order-123".into(),
+            }),
+            value_preview: Some(MessagePayload {
+                encoding: "utf8".into(),
+                data: r#"{"id":123}"#.into(),
+            }),
+            value_truncated: false,
+            value_size: 1024,
+            headers: vec![MessageHeader {
+                key: "source".into(),
+                value: Some("cGF5bWVudA==".into()),
+            }],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""partition":0"#));
+        assert!(json.contains(r#""offset":42"#));
+        assert!(json.contains("order-123"));
+        assert!(json.contains("source"));
+    }
+
+    #[test]
+    fn test_browse_messages_response_serialization() {
+        let response = BrowseMessagesResponse {
+            topic: "orders".into(),
+            messages: vec![],
+            next_offsets: vec![PartitionOffset {
+                partition: 0,
+                offset: 100,
+            }],
+            has_more: true,
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains(r#""topic":"orders""#));
+        assert!(json.contains(r#""has_more":true"#));
+        assert!(json.contains(r#""offset":100"#));
+    }
+
+    #[test]
+    fn test_global_snapshot_response_serialization() {
+        let response = GlobalSnapshotResponse {
+            requested_timestamp: Utc::now(),
+            topics: vec![TopicSnapshot {
+                topic: "orders".into(),
+                data_point: None,
+                offset_seconds: None,
+            }],
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains(r#""topic":"orders""#));
+        assert!(json.contains(r#""data_point":null"#));
+    }
+
+    #[test]
+    fn test_message_payload_serialization() {
+        let payload = MessagePayload {
+            encoding: "utf8".into(),
+            data: "hello world".into(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains(r#""encoding":"utf8""#));
+        assert!(json.contains(r#""data":"hello world""#));
     }
 }

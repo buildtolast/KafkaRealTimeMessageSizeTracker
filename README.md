@@ -6,6 +6,8 @@ Real-time Kafka message size monitoring dashboard with configurable alerts and h
 
 - **Real-time size tracking** per topic: avg, min, max, percentiles (p50/p95/p99 via reservoir sampling), msg/sec, bytes/sec
 - **Oversized message alerts** with configurable per-topic warning and critical thresholds, plus **downloadable payload capture** for messages exceeding the threshold
+- **Historical message browser** — browse actual Kafka messages by offset or timestamp, view key/value/headers, download full payloads
+- **Global dashboard snapshot** — "time-travel" to see what all topics' stats looked like at any historical timestamp
 - **7-day historical analytics** with per-minute aggregation and interactive time-series charts
 - **Live feed** of message sizes with color-coded severity (green/yellow/red)
 - **WebSocket streaming** with rate limiting (50 events/sec), topic filtering, and auto-reconnect
@@ -79,12 +81,13 @@ The web UI uses a **terminal/chalk theme** inspired by ANSI terminal colors:
 
 | Section | Description |
 |---------|-------------|
-| **Header** | App title with blinking cursor, connection status, broker configuration |
+| **Header** | App title with blinking cursor, connection status, broker configuration, `[history_browser]` button |
 | **Topic Grid** | Cards per tracked topic showing msg/sec, avg size, max size, alert status |
 | **Live Feed** | Scrolling real-time log of message sizes, color-coded by severity |
 | **Stats Detail** | Selected topic percentiles table (min, p50, p95, p99, max), rates |
 | **Alerts** | Active/recent alerts with severity indicators and threshold details |
 | **History Chart** | Canvas-based time-series line chart with selectable range (1h/6h/24h/7d) |
+| **History Browser** | Full-screen overlay with message browsing (by offset/timestamp) and global snapshot (time-travel) |
 | **Status Bar** | WebSocket status, topic count, event count, alert count |
 
 ## API
@@ -101,6 +104,9 @@ The web UI uses a **terminal/chalk theme** inspired by ANSI terminal colors:
 | `/api/history/{topic}` | GET | Time-series data (`?range=1h\|6h\|24h\|7d`) |
 | `/api/broker` | GET | Current broker address |
 | `/api/broker` | POST | Update broker (hot-swaps consumers) |
+| `/api/browse/{topic}` | GET | Browse messages by offset or timestamp (`?partition=0&offset=100&limit=50` or `?timestamp=ISO8601&limit=50`) |
+| `/api/browse/{topic}/download/{partition}/{offset}` | GET | Download full message payload at a specific partition/offset |
+| `/api/snapshot` | GET | Global dashboard snapshot at a timestamp (`?timestamp=ISO8601`) |
 | `/ws/live` | GET | WebSocket stream (SizeEvent, StatsUpdate, Alert) |
 
 ### WebSocket Protocol
@@ -150,17 +156,19 @@ src/
 ├── models.rs            # All data structures and serialization
 ├── kafka/
 │   ├── admin.rs         # BaseConsumer for metadata operations
-│   └── consumer.rs      # StreamConsumer per topic, size extraction
+│   ├── consumer.rs      # StreamConsumer per topic, size extraction
+│   └── browser.rs       # Historical message browsing (seek by offset/timestamp)
 ├── tracker/
 │   ├── stats.rs         # StatsEngine: reservoir sampling (Algorithm R), percentiles, rates
 │   └── alerts.rs        # AlertEngine: per-topic thresholds, circular alert buffer
-├── storage.rs           # TimeSeriesStorage: per-minute circular buffer (7 days)
+├── storage.rs           # TimeSeriesStorage: per-minute circular buffer (7 days), snapshot_at() for time-travel
 ├── handlers/
 │   ├── topics.rs        # GET /api/topics
 │   ├── stats.rs         # GET /api/stats/{topic}
 │   ├── alerts.rs        # GET /api/alerts, alert config
 │   ├── history.rs       # GET /api/history/{topic}
 │   ├── broker.rs        # GET/POST /api/broker
+│   ├── browse.rs        # Message browser + global snapshot
 │   └── ws.rs            # WebSocket /ws/live
 └── frontend/
     ├── mod.rs           # include_str! embedding
@@ -174,6 +182,7 @@ src/
 - **Embedded single-file HTML** via `include_str!` for zero-dependency deployment (no static file serving needed)
 - **Broadcast channels** per topic for fan-out to multiple WebSocket clients without copying
 - **Rate limiting** on WebSocket (50 events/sec) to prevent browser flooding on high-throughput topics
+- **Short-lived BaseConsumer** for historical browsing — unique consumer group per request, `enable.auto.commit=false`, dropped after request completes (no interference with real-time StreamConsumer instances)
 
 ## Docker
 
@@ -215,16 +224,17 @@ Two-stage build for minimal runtime image:
 cargo test
 ```
 
-**40 tests** across all modules:
+**53 tests** across all modules:
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
 | `config` | 2 | Default values, CLI arg overrides |
-| `models` | 6 | Serialization roundtrips, serde attributes |
+| `models` | 10 | Serialization roundtrips, serde attributes, browse/snapshot models |
 | `handlers::history` | 1 | Range string parsing |
+| `kafka::browser` | 5 | Payload encoding (UTF-8/binary/truncation), unique ID generation |
 | `tracker::stats` | 13 | Running stats, reservoir sampling, percentiles, rates, snapshots |
 | `tracker::alerts` | 11 | Threshold checks, circular buffer, per-topic config, enable/disable, capture store/eviction |
-| `storage` | 7 | Circular buffer, range queries, eviction, multi-topic independence |
+| `storage` | 11 | Circular buffer, range queries, eviction, multi-topic independence, snapshot_at |
 
 ## Tech Stack
 
@@ -240,6 +250,7 @@ cargo test
 | Timestamps | chrono 0.4 |
 | Logging | env_logger 0.11 + log 0.4 |
 | Sampling | rand 0.8 (reservoir sampling) |
+| Encoding | base64 0.22 (binary payload encoding for browser) |
 | Rust edition | 2024 |
 
 ## License

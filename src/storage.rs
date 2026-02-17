@@ -1,4 +1,5 @@
 use crate::models::HistoryDataPoint;
+use chrono::{DateTime, Utc};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -51,6 +52,43 @@ impl TimeSeriesStorage {
     pub async fn get_topics(&self) -> Vec<String> {
         let data = self.data.read().await;
         data.keys().cloned().collect()
+    }
+
+    /// Find the closest HistoryDataPoint to `target_ts` for each topic.
+    /// Returns `(topic, closest_point, offset_seconds)` for each topic.
+    pub async fn snapshot_at(
+        &self,
+        target_ts: DateTime<Utc>,
+    ) -> Vec<(String, Option<HistoryDataPoint>, Option<i64>)> {
+        let data = self.data.read().await;
+        let target_millis = target_ts.timestamp_millis();
+
+        data.iter()
+            .map(|(topic, deque)| {
+                if deque.is_empty() {
+                    return (topic.clone(), None, None);
+                }
+
+                let mut best: Option<&HistoryDataPoint> = None;
+                let mut best_diff: i64 = i64::MAX;
+
+                for point in deque.iter() {
+                    let diff = (point.timestamp.timestamp_millis() - target_millis).abs();
+                    if diff < best_diff {
+                        best_diff = diff;
+                        best = Some(point);
+                    }
+                }
+
+                match best {
+                    Some(point) => {
+                        let offset_secs = best_diff / 1000;
+                        (topic.clone(), Some(point.clone()), Some(offset_secs))
+                    }
+                    None => (topic.clone(), None, None),
+                }
+            })
+            .collect()
     }
 
     /// Clear all history (e.g., on broker change).
@@ -157,5 +195,77 @@ mod tests {
         storage.clear().await;
         assert!(storage.query("test", 100).await.is_empty());
         assert!(storage.get_topics().await.is_empty());
+    }
+
+    fn make_point_at(count: u64, avg: f64, ts: chrono::DateTime<Utc>) -> HistoryDataPoint {
+        HistoryDataPoint {
+            timestamp: ts,
+            message_count: count,
+            avg_bytes: avg,
+            min_bytes: 100,
+            max_bytes: 1000,
+            p95: 900,
+            total_bytes: (avg * count as f64) as u64,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_at_exact_match() {
+        let storage = TimeSeriesStorage::new();
+        let ts = Utc::now();
+        storage
+            .append("test", make_point_at(42, 500.0, ts))
+            .await;
+
+        let result = storage.snapshot_at(ts).await;
+        assert_eq!(result.len(), 1);
+        let (topic, dp, offset) = &result[0];
+        assert_eq!(topic, "test");
+        assert!(dp.is_some());
+        assert_eq!(dp.as_ref().unwrap().message_count, 42);
+        assert!(offset.unwrap() < 1);
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_at_finds_closest() {
+        let storage = TimeSeriesStorage::new();
+        let base = Utc::now();
+
+        // Insert points 5 minutes apart
+        for i in 0..5i64 {
+            let ts = base + chrono::Duration::minutes(i);
+            storage
+                .append("test", make_point_at(i as u64, 100.0, ts))
+                .await;
+        }
+
+        // Query at base + 2.5 minutes — should find the point at minute 2 or 3
+        let query_ts = base + chrono::Duration::seconds(150);
+        let result = storage.snapshot_at(query_ts).await;
+        let (_, dp, _) = &result[0];
+        let count = dp.as_ref().unwrap().message_count;
+        assert!(count == 2 || count == 3);
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_at_multiple_topics() {
+        let storage = TimeSeriesStorage::new();
+        let ts = Utc::now();
+        storage
+            .append("a", make_point_at(10, 100.0, ts))
+            .await;
+        storage
+            .append("b", make_point_at(20, 200.0, ts))
+            .await;
+
+        let result = storage.snapshot_at(ts).await;
+        assert_eq!(result.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_at_no_data() {
+        let storage = TimeSeriesStorage::new();
+        let result = storage.snapshot_at(Utc::now()).await;
+        assert!(result.is_empty());
     }
 }

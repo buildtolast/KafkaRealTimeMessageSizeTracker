@@ -26,3 +26,4 @@ log = "0.4"
 clap = { version = "4", features = ["derive"] }
 thiserror = "2"
 rand = "0.8"
+base64 = "0.22"

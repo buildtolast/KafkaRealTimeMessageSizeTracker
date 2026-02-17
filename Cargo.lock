@@ -996,6 +996,7 @@ dependencies = [
  "actix-rt",
  "actix-web",
  "actix-ws",
+ "base64",
  "chrono",
  "clap",
  "env_logger",

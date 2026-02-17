@@ -485,6 +485,117 @@ body::after {
   justify-content: flex-end;
   margin-top: 16px;
 }
+
+/* ── History Browser Overlay ── */
+.browser-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  z-index: 500;
+  flex-direction: column;
+}
+.browser-overlay.active { display: flex; }
+
+.browser-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.browser-header .title { color: var(--cyan); font-weight: 600; font-size: 15px; }
+
+.browser-tabs { display: flex; gap: 0; margin-left: 20px; }
+.browser-tab {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.browser-tab:first-child { border-radius: var(--radius) 0 0 0; }
+.browser-tab:last-child { border-radius: 0 var(--radius) 0 0; }
+.browser-tab.active { background: var(--surface); color: var(--cyan); border-bottom: 2px solid var(--cyan); }
+.browser-tab:hover:not(.active) { color: var(--text); }
+
+.browser-controls {
+  background: var(--surface);
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.browser-field { display: flex; align-items: center; gap: 6px; }
+.browser-field label { color: var(--text-dim); font-size: 11px; text-transform: uppercase; }
+.browser-field input, .browser-field select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  outline: none;
+}
+.browser-field input:focus, .browser-field select:focus { border-color: var(--cyan); }
+
+.browser-body { overflow: auto; padding: 12px 20px; flex: 1; }
+
+.msg-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.msg-table th {
+  text-align: left; color: var(--text-dim); font-weight: 400; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 10px;
+  border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg);
+}
+.msg-table td { padding: 6px 10px; border-bottom: 1px solid rgba(48,54,61,0.3); vertical-align: top; }
+.msg-table tr { cursor: pointer; transition: background var(--transition); }
+.msg-table tr:hover { background: var(--surface); }
+.msg-table tr.selected { background: var(--surface2); border-left: 2px solid var(--cyan); }
+
+.msg-offset { color: var(--magenta); font-weight: 600; }
+.msg-partition { color: var(--text-muted); }
+.msg-ts { color: var(--text-dim); }
+.msg-size { font-weight: 600; }
+.msg-key { color: var(--yellow); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-preview { color: var(--text-dim); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.msg-detail {
+  display: none; background: var(--surface); border-left: 1px solid var(--border);
+  padding: 16px; overflow-y: auto; width: 400px; flex-shrink: 0;
+}
+.msg-detail.active { display: block; }
+.msg-detail-title { color: var(--cyan); font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+.msg-detail-row { margin-bottom: 8px; }
+.msg-detail-row label { display: block; color: var(--text-dim); font-size: 10px; text-transform: uppercase; margin-bottom: 2px; }
+.msg-detail-row .value { color: var(--text); word-break: break-all; font-size: 12px; }
+.msg-detail-row .value-code {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px; font-size: 11px; max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+}
+
+.snapshot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.snapshot-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.snapshot-topic-name { color: var(--cyan); font-weight: 600; margin-bottom: 8px; font-size: 13px; }
+.snapshot-metric { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; }
+.snapshot-metric .value { color: var(--text); }
+.snapshot-no-data { color: var(--text-muted); font-style: italic; font-size: 11px; }
+.snapshot-offset-badge { font-size: 9px; color: var(--text-muted); margin-top: 6px; }
+
+.browser-pagination {
+  background: var(--surface); border-top: 1px solid var(--border);
+  padding: 8px 20px; display: flex; align-items: center; gap: 12px;
+  font-size: 11px; color: var(--text-dim); flex-shrink: 0;
+}
 </style>
 </head>
 <body>
@@ -506,6 +617,7 @@ body::after {
       <input type="text" class="broker-input" id="brokerInput" value="localhost:9092" placeholder="host:port">
       <button class="btn btn-primary" id="brokerBtn" onclick="updateBroker()">connect</button>
     </div>
+    <button class="btn" style="color:var(--magenta);border-color:var(--magenta-dim)" onclick="openBrowser()">[history_browser]</button>
   </div>
 
   <!-- Main Content -->
@@ -620,6 +732,78 @@ body::after {
       <button class="btn" onclick="closeAlertConfig()">cancel</button>
       <button class="btn btn-primary" onclick="saveAlertConfig()">save</button>
     </div>
+  </div>
+</div>
+
+<!-- History Browser Overlay -->
+<div class="browser-overlay" id="browserOverlay">
+  <div class="browser-header">
+    <span class="prompt">&gt;</span>
+    <span class="title">history_browser</span>
+    <div class="browser-tabs">
+      <button class="browser-tab active" onclick="switchBrowserTab('messages',this)">messages</button>
+      <button class="browser-tab" onclick="switchBrowserTab('snapshot',this)">global_snapshot</button>
+    </div>
+    <div style="flex:1"></div>
+    <button class="btn" onclick="closeBrowser()" style="font-size:11px">[close]</button>
+  </div>
+
+  <!-- Messages Tab Controls -->
+  <div class="browser-controls" id="browseControls">
+    <div class="browser-field">
+      <label>Topic</label>
+      <select id="browseTopic"></select>
+    </div>
+    <div class="browser-field">
+      <label>Mode</label>
+      <select id="browseMode" onchange="onBrowseModeChange()">
+        <option value="offset">by offset</option>
+        <option value="timestamp">by timestamp</option>
+      </select>
+    </div>
+    <div class="browser-field" id="browsePartitionField">
+      <label>Partition</label>
+      <input type="number" id="browsePartition" value="0" min="0" style="width:60px">
+    </div>
+    <div class="browser-field" id="browseOffsetField">
+      <label>Offset</label>
+      <input type="number" id="browseOffset" value="0" min="0" style="width:100px">
+    </div>
+    <div class="browser-field" id="browseTimestampField" style="display:none">
+      <label>Timestamp</label>
+      <input type="datetime-local" id="browseTimestamp" step="1" style="width:200px">
+    </div>
+    <div class="browser-field">
+      <label>Limit</label>
+      <input type="number" id="browseLimit" value="50" min="1" max="100" style="width:60px">
+    </div>
+    <button class="btn btn-primary" onclick="executeBrowse()">fetch</button>
+  </div>
+
+  <!-- Snapshot Tab Controls -->
+  <div class="browser-controls" id="snapshotControls" style="display:none">
+    <div class="browser-field">
+      <label>Timestamp</label>
+      <input type="datetime-local" id="snapshotTimestamp" step="1" style="width:200px">
+    </div>
+    <button class="btn btn-primary" onclick="executeSnapshot()">time_travel</button>
+  </div>
+
+  <!-- Body -->
+  <div style="display:flex;flex:1;overflow:hidden">
+    <div class="browser-body" id="browserBody">
+      <div style="color:var(--text-dim);text-align:center;margin-top:60px">
+        select a topic, set parameters, and click <span style="color:var(--cyan)">fetch</span> to browse messages
+      </div>
+    </div>
+    <div class="msg-detail" id="msgDetail"></div>
+  </div>
+
+  <!-- Pagination -->
+  <div class="browser-pagination" id="browserPagination" style="display:none">
+    <span id="browseResultInfo"></span>
+    <div style="flex:1"></div>
+    <button class="btn" id="browseNextBtn" onclick="browseNext()" style="font-size:11px">[next_page &gt;]</button>
   </div>
 </div>
 
@@ -1165,6 +1349,309 @@ document.getElementById('alertConfigModal').addEventListener('click', (e) => {
 document.getElementById('brokerInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') updateBroker();
 });
+
+// Close browser overlay on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeBrowser();
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   HISTORY BROWSER
+   ═══════════════════════════════════════════════════════════════════ */
+
+let browserTab = 'messages';
+let browseNextOffsets = null;
+let browseHasMore = false;
+let browseMessages = [];
+let selectedMsgIndex = -1;
+
+function openBrowser() {
+  const overlay = document.getElementById('browserOverlay');
+  overlay.classList.add('active');
+
+  // Populate topic dropdown from current state
+  const sel = document.getElementById('browseTopic');
+  const prevVal = sel.value;
+  sel.innerHTML = '';
+  for (const t of state.topics) {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t;
+    sel.appendChild(opt);
+  }
+  if (prevVal && state.topics.includes(prevVal)) sel.value = prevVal;
+
+  // Set default timestamp to now
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  const localISO = now.toISOString().slice(0, 19);
+  document.getElementById('browseTimestamp').value = localISO;
+  document.getElementById('snapshotTimestamp').value = localISO;
+}
+
+function closeBrowser() {
+  document.getElementById('browserOverlay').classList.remove('active');
+}
+
+function switchBrowserTab(tab, btn) {
+  browserTab = tab;
+  document.querySelectorAll('.browser-tab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  const browseCtrl = document.getElementById('browseControls');
+  const snapCtrl = document.getElementById('snapshotControls');
+  const pagination = document.getElementById('browserPagination');
+  const detail = document.getElementById('msgDetail');
+
+  if (tab === 'messages') {
+    browseCtrl.style.display = 'flex';
+    snapCtrl.style.display = 'none';
+    pagination.style.display = browseHasMore ? 'flex' : 'none';
+  } else {
+    browseCtrl.style.display = 'none';
+    snapCtrl.style.display = 'flex';
+    pagination.style.display = 'none';
+    detail.classList.remove('active');
+  }
+}
+
+function onBrowseModeChange() {
+  const mode = document.getElementById('browseMode').value;
+  document.getElementById('browsePartitionField').style.display = mode === 'offset' ? 'flex' : 'none';
+  document.getElementById('browseOffsetField').style.display = mode === 'offset' ? 'flex' : 'none';
+  document.getElementById('browseTimestampField').style.display = mode === 'timestamp' ? 'flex' : 'none';
+}
+
+async function executeBrowse() {
+  const topic = document.getElementById('browseTopic').value;
+  if (!topic) return;
+
+  const mode = document.getElementById('browseMode').value;
+  const limit = document.getElementById('browseLimit').value || 50;
+  let url = `/api/browse/${encodeURIComponent(topic)}?limit=${limit}`;
+
+  if (mode === 'offset') {
+    const partition = document.getElementById('browsePartition').value || 0;
+    const offset = document.getElementById('browseOffset').value || 0;
+    url += `&partition=${partition}&offset=${offset}`;
+  } else {
+    const ts = document.getElementById('browseTimestamp').value;
+    if (ts) url += `&timestamp=${new Date(ts).toISOString()}`;
+  }
+
+  const body = document.getElementById('browserBody');
+  body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">fetching...</div>';
+  document.getElementById('msgDetail').classList.remove('active');
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const errText = await res.text();
+      body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">error: ${escapeHtml(errText)}</div>`;
+      return;
+    }
+    const data = await res.json();
+    browseMessages = data.messages || [];
+    browseNextOffsets = data.next_offsets || [];
+    browseHasMore = data.has_more || false;
+    selectedMsgIndex = -1;
+    renderBrowseMessages();
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">fetch error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function browseNext() {
+  if (!browseNextOffsets || browseNextOffsets.length === 0) return;
+
+  const topic = document.getElementById('browseTopic').value;
+  if (!topic) return;
+  const limit = document.getElementById('browseLimit').value || 50;
+
+  // Use first next_offset entry for pagination
+  const no = browseNextOffsets[0];
+  const url = `/api/browse/${encodeURIComponent(topic)}?limit=${limit}&partition=${no.partition}&offset=${no.offset}`;
+
+  const body = document.getElementById('browserBody');
+  body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">fetching...</div>';
+  document.getElementById('msgDetail').classList.remove('active');
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const errText = await res.text();
+      body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">error: ${escapeHtml(errText)}</div>`;
+      return;
+    }
+    const data = await res.json();
+    browseMessages = data.messages || [];
+    browseNextOffsets = data.next_offsets || [];
+    browseHasMore = data.has_more || false;
+    selectedMsgIndex = -1;
+    renderBrowseMessages();
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">fetch error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderBrowseMessages() {
+  const body = document.getElementById('browserBody');
+  const pagination = document.getElementById('browserPagination');
+  const info = document.getElementById('browseResultInfo');
+
+  if (browseMessages.length === 0) {
+    body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">no messages found at this offset/timestamp</div>';
+    pagination.style.display = 'none';
+    return;
+  }
+
+  let html = '<table class="msg-table"><thead><tr>';
+  html += '<th>partition</th><th>offset</th><th>timestamp</th><th>size</th><th>key</th><th>value preview</th>';
+  html += '</tr></thead><tbody>';
+
+  for (let i = 0; i < browseMessages.length; i++) {
+    const m = browseMessages[i];
+    const sel = i === selectedMsgIndex ? ' selected' : '';
+    const keyText = m.key ? truncateStr(m.key.data, 20) : '<span style="color:var(--text-muted)">null</span>';
+    const previewText = m.value_preview ? truncateStr(m.value_preview.data, 60) : '<span style="color:var(--text-muted)">null</span>';
+
+    html += `<tr class="${sel}" onclick="selectBrowseMessage(${i})">`;
+    html += `<td class="msg-partition">${m.partition}</td>`;
+    html += `<td class="msg-offset">${m.offset}</td>`;
+    html += `<td class="msg-ts">${formatTime(m.timestamp)}</td>`;
+    html += `<td class="msg-size ${sizeClass(m.size_bytes)}">${formatBytes(m.size_bytes)}</td>`;
+    html += `<td class="msg-key">${keyText}</td>`;
+    html += `<td class="msg-preview">${previewText}</td>`;
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  body.innerHTML = html;
+
+  info.textContent = `${browseMessages.length} messages`;
+  pagination.style.display = browseHasMore ? 'flex' : 'none';
+}
+
+function selectBrowseMessage(idx) {
+  selectedMsgIndex = idx;
+  const m = browseMessages[idx];
+  if (!m) return;
+
+  // Highlight row
+  document.querySelectorAll('.msg-table tr').forEach(r => r.classList.remove('selected'));
+  const rows = document.querySelectorAll('.msg-table tbody tr');
+  if (rows[idx]) rows[idx].classList.add('selected');
+
+  const detail = document.getElementById('msgDetail');
+  detail.classList.add('active');
+
+  const keyDisplay = m.key
+    ? `<div class="value-code">${escapeHtml(m.key.data)}</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">encoding: ${m.key.encoding}</div>`
+    : '<span style="color:var(--text-muted)">null</span>';
+
+  const valueDisplay = m.value_preview
+    ? `<div class="value-code">${escapeHtml(m.value_preview.data)}</div>
+       <div style="font-size:10px;color:var(--text-muted);margin-top:2px">encoding: ${m.value_preview.encoding}${m.value_truncated ? ' (truncated, ' + formatBytes(m.value_size) + ' total)' : ''}</div>`
+    : '<span style="color:var(--text-muted)">null</span>';
+
+  let headersHtml = '';
+  if (m.headers && m.headers.length > 0) {
+    headersHtml = '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+    for (const h of m.headers) {
+      headersHtml += `<tr><td style="color:var(--yellow);padding:2px 6px">${escapeHtml(h.key)}</td><td style="color:var(--text);padding:2px 6px">${h.value ? escapeHtml(h.value) : '<span style="color:var(--text-muted)">null</span>'}</td></tr>`;
+    }
+    headersHtml += '</table>';
+  } else {
+    headersHtml = '<span style="color:var(--text-muted)">none</span>';
+  }
+
+  detail.innerHTML = `
+    <div class="msg-detail-title">message detail</div>
+    <div class="msg-detail-row"><label>Topic</label><div class="value">${escapeHtml(m.topic)}</div></div>
+    <div class="msg-detail-row"><label>Partition</label><div class="value">${m.partition}</div></div>
+    <div class="msg-detail-row"><label>Offset</label><div class="value" style="color:var(--magenta)">${m.offset}</div></div>
+    <div class="msg-detail-row"><label>Timestamp</label><div class="value">${new Date(m.timestamp).toISOString()}</div></div>
+    <div class="msg-detail-row"><label>Size</label><div class="value ${sizeClass(m.size_bytes)}">${formatBytes(m.size_bytes)}</div></div>
+    <div class="msg-detail-row"><label>Key</label>${keyDisplay}</div>
+    <div class="msg-detail-row"><label>Value</label>${valueDisplay}</div>
+    <div class="msg-detail-row"><label>Headers (${m.headers ? m.headers.length : 0})</label>${headersHtml}</div>
+    ${m.value_size > 1024 ? `<div style="margin-top:12px"><a class="btn btn-primary" href="/api/browse/${encodeURIComponent(m.topic)}/download/${m.partition}/${m.offset}" download style="text-decoration:none;font-size:11px">[download full payload]</a></div>` : ''}
+  `;
+}
+
+async function executeSnapshot() {
+  const tsInput = document.getElementById('snapshotTimestamp').value;
+  if (!tsInput) return;
+
+  const timestamp = new Date(tsInput).toISOString();
+  const body = document.getElementById('browserBody');
+  body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">time traveling...</div>';
+
+  try {
+    const res = await fetch(`/api/snapshot?timestamp=${encodeURIComponent(timestamp)}`);
+    if (!res.ok) {
+      const errText = await res.text();
+      body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">error: ${escapeHtml(errText)}</div>`;
+      return;
+    }
+    const data = await res.json();
+    renderSnapshot(data);
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">fetch error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderSnapshot(data) {
+  const body = document.getElementById('browserBody');
+
+  if (!data.topics || data.topics.length === 0) {
+    body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">no historical data available at this timestamp</div>';
+    return;
+  }
+
+  let html = `<div style="color:var(--text-dim);font-size:11px;margin-bottom:12px">
+    snapshot at: <span style="color:var(--cyan)">${new Date(data.requested_timestamp).toISOString()}</span>
+    &mdash; ${data.topics.length} topics
+  </div>`;
+  html += '<div class="snapshot-grid">';
+
+  for (const t of data.topics) {
+    html += '<div class="snapshot-card">';
+    html += `<div class="snapshot-topic-name">${escapeHtml(t.topic)}</div>`;
+
+    if (t.data_point) {
+      const dp = t.data_point;
+      html += `
+        <div class="snapshot-metric"><span>messages</span><span class="value">${dp.message_count.toLocaleString()}</span></div>
+        <div class="snapshot-metric"><span>avg size</span><span class="value">${formatBytes(dp.avg_bytes)}</span></div>
+        <div class="snapshot-metric"><span>min</span><span class="value">${formatBytes(dp.min_bytes)}</span></div>
+        <div class="snapshot-metric"><span>max</span><span class="value ${sizeClass(dp.max_bytes)}">${formatBytes(dp.max_bytes)}</span></div>
+        <div class="snapshot-metric"><span>p95</span><span class="value">${formatBytes(dp.p95)}</span></div>
+        <div class="snapshot-metric"><span>total</span><span class="value">${formatBytes(dp.total_bytes)}</span></div>
+      `;
+      if (t.offset_seconds !== null && t.offset_seconds !== undefined) {
+        const label = t.offset_seconds === 0 ? 'exact match' : `~${t.offset_seconds}s offset`;
+        html += `<div class="snapshot-offset-badge">${label}</div>`;
+      }
+    } else {
+      html += '<div class="snapshot-no-data">no data at this time</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function truncateStr(str, maxLen) {
+  if (!str) return '';
+  const s = escapeHtml(str);
+  if (s.length <= maxLen) return s;
+  return s.slice(0, maxLen) + '...';
+}
 
 // Start
 init();

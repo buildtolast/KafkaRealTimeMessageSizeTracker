@@ -22,14 +22,15 @@
 - `docker compose -f docker-compose.full.yml up -d` runs Kafka (KRaft) + App + seed producer
 - Dev server: `cargo run -- --brokers localhost:9092 --port 3000`
 - Dashboard at http://localhost:3000
-- **40 tests**: config(2) + models(6) + stats(13) + alerts(11) + storage(7) + handlers(1)
+- **53 tests**: config(2) + models(10) + stats(13) + alerts(11) + storage(11) + handlers(1) + browser(5)
 - **Terminal/chalk theme**: dark bg (#0d1117), ANSI colors, monospace font, scanline overlay
-- Features: real-time size tracking (avg/min/max/p50/p95/p99), oversized message alerts with payload download, 7-day history
+- Features: real-time size tracking, oversized message alerts with payload download, 7-day history, historical message browser (by offset/timestamp), global dashboard snapshot (time-travel)
 
 ## Memory & Plan File Convention
 - Memory files: `memory-ProjectName.md` — live in `.claude/projects/.../memory/` AND copied into each project's git repo at `memory/`
 - Plan files: `plan-ProjectName.md` — created next to memory files
 - When memory is updated in `.claude`, also update the copy in the git repo
+- **Before every commit**: Always update memory files, context (MEMORY.md), and README first, then commit and push
 
 ## MongoAssist Project (formerly MongoChatBot)
 - Location: ~/GIT/MongoChatBot — see [memory-MongoChatBot.md](memory-MongoChatBot.md) for full details
