@@ -37,9 +37,9 @@ WORKDIR /app
 COPY --from=builder /app/target/release/kafka-message-size-tracker ./
 
 ENV SERVER_HOST=0.0.0.0
-ENV SERVER_PORT=3000
+ENV SERVER_PORT=5000
 ENV RUST_LOG=info
 
-EXPOSE 3000
+EXPOSE 5000
 
 ENTRYPOINT ["./kafka-message-size-tracker"]

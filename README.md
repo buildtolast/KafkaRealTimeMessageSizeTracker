@@ -31,7 +31,7 @@ Starts Kafka (KRaft mode, no ZooKeeper), the tracker dashboard, MongoDB, and a s
 docker compose -f docker-compose.full.yml up -d
 ```
 
-Open http://localhost:3000
+Open http://localhost:5000
 
 ### Docker (App Only)
 
@@ -46,13 +46,13 @@ KAFKA_BROKERS=your-kafka:9092 docker compose up -d
 Requires Rust 1.88+ and cmake (for librdkafka static build):
 
 ```bash
-cargo run -- --brokers localhost:9092 --port 3000
+cargo run -- --brokers localhost:9092 --port 5000
 ```
 
 With MongoDB persistence:
 
 ```bash
-cargo run -- --brokers localhost:9092 --port 3000 --mongo-uri mongodb://localhost:27017
+cargo run -- --brokers localhost:9092 --port 5000 --mongo-uri mongodb://localhost:27017
 ```
 
 ## CLI Options
@@ -62,7 +62,7 @@ kafka-message-size-tracker [OPTIONS]
 
 Options:
   --brokers <BROKERS>                Kafka broker addresses [default: localhost:9092]
-  --port <PORT>                      Server port [default: 3000]
+  --port <PORT>                      Server port [default: 5000]
   --host <HOST>                      Server host [default: 127.0.0.1]
   --threshold <THRESHOLD>            Warning alert threshold in bytes [default: 1048576]
   --critical-threshold <THRESHOLD>   Critical alert threshold in bytes [default: 10485760]
@@ -77,7 +77,7 @@ All CLI options can be overridden with environment variables:
 |----------|---------|-------------|
 | `KAFKA_BROKERS` | `localhost:9092` | Kafka broker addresses |
 | `SERVER_HOST` | `127.0.0.1` | Server bind host |
-| `SERVER_PORT` | `3000` | Server bind port |
+| `SERVER_PORT` | `5000` | Server bind port |
 | `ALERT_THRESHOLD_BYTES` | `1048576` (1MB) | Default warning threshold |
 | `CRITICAL_THRESHOLD_BYTES` | `10485760` (10MB) | Default critical threshold |
 | `CONSUMER_GROUP` | `kafka-size-tracker` | Kafka consumer group prefix |
@@ -283,7 +283,7 @@ Two-stage build for minimal runtime image:
 cargo test
 ```
 
-**65 tests** across all modules:
+**70 tests** across all modules:
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
