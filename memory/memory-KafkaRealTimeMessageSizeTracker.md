@@ -32,15 +32,15 @@ src/
 ├── main.rs              — Server bootstrap, TopicManager, AppState, SharedMongoStore, MongoDB init, routes, 3 background tasks, mongo_store passed to TopicManager, MongoDB persist in event pipeline
 ├── config.rs            — Args (clap) + AppConfig (env var fallback), --mongo-uri / MONGO_URI
 ├── error.rs             — TrackerError (thiserror) with actix ResponseError impl
-├── models.rs            — MessageSizeEvent, TopicStats, Alert, AlertConfig, HistoryDataPoint, WsMessage, CapturedMessage, HistoricalMessage, BrowseMessagesResponse, TopicSnapshot, GlobalSnapshotResponse, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, PartitionLag, TopicThroughput, ThroughputRecommendation, ClusterInsightsResponse, BrowseQueryParams (with preset: Option<String>)
+├── models.rs            — MessageSizeEvent, TopicStats, Alert, AlertConfig, HistoryDataPoint, WsMessage, CapturedMessage, HistoricalMessage, BrowseMessagesResponse, TopicSnapshot, GlobalSnapshotResponse, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, PartitionLag, TopicThroughput, ThroughputRecommendation, ClusterInsightsResponse, BrowseQueryParams (with preset: Option<String>), AlertDefaultsResponse, AlertDefaultsRequest
 ├── mongo.rs             — MongoStore with two collections (oversized_messages + alerts), PersistedMessage/PersistedAlert models, persist + query methods
 ├── kafka/
 │   ├── admin.rs         — BaseConsumer for metadata (list_topics), discover_brokers(), fetch_consumer_lag(), build_cluster_insights()
-│   ├── consumer.rs      — StreamConsumer per topic, extracts payload.len() + captures raw bytes for oversized msgs
+│   ├── consumer.rs      — StreamConsumer per topic, extracts payload.len() + captures raw bytes dynamically (reads threshold from AlertEngine per message)
 │   └── browser.rs       — Historical message browsing: seek by offset/timestamp, browse_from_beginning(), browse_latest(), short-lived BaseConsumer per request
 ├── tracker/
 │   ├── stats.rs         — StatsEngine: running avg/min/max, reservoir sampling (Algorithm R, 1000 samples)
-│   └── alerts.rs        — AlertEngine: per-topic thresholds, circular buffer (1000 alerts), capture store (100 max)
+│   └── alerts.rs        — AlertEngine: per-topic thresholds, circular buffer (1000 alerts), capture store (100 max), runtime-mutable defaults (Arc<RwLock>), get_capture_threshold() for dynamic consumer capture
 ├── storage.rs           — TimeSeriesStorage: per-minute aggregates, circular buffer (7 days = 10080 entries), snapshot_at() for time-travel
 ├── handlers/
 │   ├── topics.rs        — GET /api/topics, GET /api/topics/available, POST /api/topics/toggle
@@ -92,6 +92,8 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 | `/api/alerts/download/{id}` | GET | Download captured oversized message payload (.bin) |
 | `/api/alerts/config` | GET | All alert threshold configs |
 | `/api/alerts/config` | POST | Set threshold for a topic |
+| `/api/alerts/defaults` | GET | Get global default thresholds |
+| `/api/alerts/defaults` | POST | Update global default thresholds at runtime |
 | `/api/history/{topic}` | GET | Time-series data (query: ?range=1h\|6h\|24h\|7d) |
 | `/api/broker` | GET | Current broker address |
 | `/api/broker` | POST | Update broker (hot-swap, clears consumers) |
@@ -119,6 +121,8 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 - **History Browser**: Full-screen overlay with 3 tabs (messages browse + global snapshot + persisted data), message detail sidebar, pagination
 - **Historical play presets**: `?preset=beginning|1h|1d|latest` param for quick browsing
 - **Chart**: Lightweight Canvas-based line chart (no external lib), auto-scaling, cyan line + fill
+- **Live feed mini-chart**: Dual-axis timeseries (avg size cyan line + msg/s magenta dashed line), per-second rolling buffer (120 pts), crosshair hover with tooltip
+- **Alerts mini-chart**: Stacked bar chart (warnings yellow + criticals red), per-10-second buckets, hover with tooltip
 - **WebSocket**: auto-reconnect with exponential backoff
 
 ## MongoDB Persistence
@@ -130,13 +134,13 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 - **Endpoints**: `/api/persisted/messages`, `/api/persisted/alerts`, `/api/persisted/status`
 - **Docker**: mongo:7 container with volume in docker-compose.full.yml
 
-## Tests (65 total)
+## Tests (70 total)
 - `config::tests` (2): default values, args override
-- `models::tests` (18): WsMessage serialization, AlertSeverity serde, AlertConfigRequest deser, AlertStatus ser, HistoryDataPoint roundtrip, HistoricalMessage ser, BrowseMessagesResponse ser, GlobalSnapshotResponse ser, MessagePayload ser, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, ClusterInsightsResponse, BrowseQueryParams with preset, PartitionLag, TopicThroughput
+- `models::tests` (20): WsMessage serialization, AlertSeverity serde, AlertConfigRequest deser, AlertStatus ser, HistoryDataPoint roundtrip, HistoricalMessage ser, BrowseMessagesResponse ser, GlobalSnapshotResponse ser, MessagePayload ser, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, ClusterInsightsResponse, BrowseQueryParams with preset, PartitionLag, TopicThroughput, AlertDefaultsResponse ser, AlertDefaultsRequest deser
 - `handlers::history::tests` (1): parse_range
 - `kafka::browser::tests` (5): encode_payload_utf8, encode_payload_binary, encode_payload_truncation, encode_payload_no_truncation, uuid_simple_unique
 - `tracker::stats::tests` (13): empty stats, single event, running average, min/max, percentiles (symmetric), reservoir bounds, multi-topic, get_all, snapshot/reset, empty snapshot, clear, percentiles empty/single
-- `tracker::alerts::tests` (11): no alert, warning, critical, circular buffer, custom threshold, disabled, defaults, ID increment, capture stored, capture eviction, capture missing returns none
+- `tracker::alerts::tests` (14): no alert, warning, critical, circular buffer, custom threshold, disabled, defaults, ID increment, capture stored, capture eviction, capture missing returns none, set_defaults_changes_runtime, get_capture_threshold_per_topic, get_capture_threshold_after_set_defaults
 - `storage::tests` (11): append/query, range filtering, circular eviction, empty topic, multi-topic, get_topics, clear, snapshot_at_exact_match, snapshot_at_finds_closest, snapshot_at_multiple_topics, snapshot_at_no_data
 - `mongo::tests` (4): PersistedMessage ser/deser, PersistedAlert ser/deser
 

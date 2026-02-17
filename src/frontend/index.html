@@ -408,6 +408,57 @@ body::after {
 .feed-size.red { color: var(--red); }
 .feed-partition { color: var(--text-muted); font-size: 11px; }
 
+/* ── Mini Chart (shared for live feed + alerts) ── */
+.mini-chart-wrap {
+  position: relative;
+  height: 100px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: crosshair;
+}
+.mini-chart-wrap canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.mini-chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--surface2, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: nowrap;
+  z-index: 10;
+  display: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.mini-chart-legend {
+  display: flex;
+  gap: 10px;
+  padding: 2px 14px 2px;
+  font-size: 9px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.mini-chart-legend span::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.legend-size::before { background: var(--cyan); }
+.legend-count::before { background: var(--magenta); }
+.legend-alerts::before { background: var(--red); }
+.legend-warnings::before { background: var(--yellow); }
+
 /* ── Stats Detail ── */
 .stats-empty {
   color: var(--text-dim);
@@ -962,10 +1013,18 @@ body::after {
     <!-- Right Panels -->
     <div class="panels">
       <!-- Live Feed -->
-      <div class="panel">
+      <div class="panel" style="display:flex;flex-direction:column;">
         <div class="panel-header">
           <span class="prompt">&gt;</span> live_feed
           <span class="count" id="feedCount">(0)</span>
+        </div>
+        <div class="mini-chart-legend">
+          <span class="legend-size">avg size</span>
+          <span class="legend-count">msg/s</span>
+        </div>
+        <div class="mini-chart-wrap" id="feedChartWrap">
+          <canvas id="feedChart"></canvas>
+          <div class="mini-chart-tooltip" id="feedChartTooltip"></div>
         </div>
         <div class="panel-body" id="liveFeed"></div>
       </div>
@@ -982,7 +1041,7 @@ body::after {
       </div>
 
       <!-- Alerts -->
-      <div class="panel">
+      <div class="panel" style="display:flex;flex-direction:column;">
         <div class="panel-header">
           <span class="prompt">&gt;</span> alerts
           <span class="count" id="alertCount">(0)</span>
@@ -993,6 +1052,14 @@ body::after {
             <button class="alert-time-btn active" data-window="0" onclick="setAlertWindow(0,this)">all</button>
           </div>
           <button class="btn" style="font-size:10px;padding:2px 8px;margin-left:4px" onclick="openAlertConfig()">config</button>
+        </div>
+        <div class="mini-chart-legend">
+          <span class="legend-warnings">warnings</span>
+          <span class="legend-alerts">critical</span>
+        </div>
+        <div class="mini-chart-wrap" id="alertChartWrap" style="height:80px;">
+          <canvas id="alertChart"></canvas>
+          <div class="mini-chart-tooltip" id="alertChartTooltip"></div>
         </div>
         <div class="panel-body" id="alertsPanel">
           <div class="alerts-empty">no alerts</div>
@@ -1252,7 +1319,17 @@ const state = {
 
 const MAX_FEED = 200;
 const MAX_ALERTS_DISPLAY = 100;
+const MAX_MINI_POINTS = 120; // 2 minutes of per-second data
 const GLOBAL_CHART_COLORS = ['#8be9fd', '#ff79c6', '#50fa7b', '#f1fa8c', '#ffb86c', '#ff5555', '#bd93f9', '#6272a4'];
+
+/* ── Mini-chart rolling timeseries buffers ── */
+// Feed chart: per-second buckets of { ts, avgSize, count }
+const feedTimeseries = [];
+let feedBucket = { ts: 0, totalSize: 0, count: 0 };
+
+// Alert chart: per-10-second buckets of { ts, warnings, criticals }
+const alertTimeseries = [];
+let alertBucket = { ts: 0, warnings: 0, criticals: 0 };
 
 /* ── Theme ── */
 function setTheme(theme) {
@@ -1375,10 +1452,28 @@ function handleSizeEvent(event) {
   state.totalEvents++;
   document.getElementById('statusEvents').textContent = state.totalEvents.toLocaleString();
 
+  // Aggregate into per-second feed timeseries bucket
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (feedBucket.ts !== nowSec) {
+    // Flush previous bucket
+    if (feedBucket.ts > 0 && feedBucket.count > 0) {
+      feedTimeseries.push({
+        ts: feedBucket.ts * 1000,
+        avgSize: feedBucket.totalSize / feedBucket.count,
+        count: feedBucket.count,
+      });
+      if (feedTimeseries.length > MAX_MINI_POINTS) feedTimeseries.shift();
+    }
+    feedBucket = { ts: nowSec, totalSize: 0, count: 0 };
+  }
+  feedBucket.totalSize += event.size_bytes;
+  feedBucket.count++;
+
   // Add to live feed
   state.liveFeed.unshift(event);
   if (state.liveFeed.length > MAX_FEED) state.liveFeed.pop();
   renderLiveFeed();
+  renderFeedChart();
 }
 
 function handleStatsUpdate(stats) {
@@ -1405,7 +1500,25 @@ function handleAlert(alert) {
   if (state.alerts.length > MAX_ALERTS_DISPLAY) state.alerts.pop();
   document.getElementById('statusAlerts').textContent = state.alerts.length;
   document.getElementById('alertCount').textContent = `(${state.alerts.length})`;
+
+  // Aggregate into per-10-second alert timeseries bucket
+  const nowBucket = Math.floor(Date.now() / 10000);
+  if (alertBucket.ts !== nowBucket) {
+    if (alertBucket.ts > 0 && (alertBucket.warnings > 0 || alertBucket.criticals > 0)) {
+      alertTimeseries.push({
+        ts: alertBucket.ts * 10000,
+        warnings: alertBucket.warnings,
+        criticals: alertBucket.criticals,
+      });
+      if (alertTimeseries.length > MAX_MINI_POINTS) alertTimeseries.shift();
+    }
+    alertBucket = { ts: nowBucket, warnings: 0, criticals: 0 };
+  }
+  if (alert.severity === 'critical') alertBucket.criticals++;
+  else alertBucket.warnings++;
+
   renderAlerts();
+  renderAlertChart();
 }
 
 /* ── Render: Topic List (Sidebar) ── */
@@ -1624,6 +1737,10 @@ async function updateBroker() {
       state.alerts = [];
       state.totalEvents = 0;
       state.globalHistoryData = {};
+      feedTimeseries.length = 0;
+      alertTimeseries.length = 0;
+      feedBucket = { ts: 0, totalSize: 0, count: 0 };
+      alertBucket = { ts: 0, warnings: 0, criticals: 0 };
       renderTopicList();
       renderLiveFeed();
       renderAlerts();
@@ -1849,6 +1966,267 @@ function renderGlobalChart() {
     ctx.lineWidth = 1.5;
     ctx.stroke();
   });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MINI TIMESERIES CHARTS (Live Feed + Alerts)
+   ═══════════════════════════════════════════════════════════════════ */
+
+function setupMiniChart(canvasId, wrapId, tooltipId) {
+  const canvas = document.getElementById(canvasId);
+  const wrap = document.getElementById(wrapId);
+  const tooltip = document.getElementById(tooltipId);
+  if (!canvas || !wrap) return null;
+
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    canvas._hoverX = e.clientX - rect.left;
+    canvas._hoverY = e.clientY - rect.top;
+    canvas._hovering = true;
+    if (canvas._renderFn) canvas._renderFn();
+  });
+  canvas.addEventListener('mouseleave', () => {
+    canvas._hovering = false;
+    tooltip.style.display = 'none';
+    if (canvas._renderFn) canvas._renderFn();
+  });
+  return { canvas, wrap, tooltip };
+}
+
+// Initialize hover listeners on load
+let feedChartRef, alertChartRef;
+setTimeout(() => {
+  feedChartRef = setupMiniChart('feedChart', 'feedChartWrap', 'feedChartTooltip');
+  if (feedChartRef) feedChartRef.canvas._renderFn = renderFeedChart;
+  alertChartRef = setupMiniChart('alertChart', 'alertChartWrap', 'alertChartTooltip');
+  if (alertChartRef) alertChartRef.canvas._renderFn = renderAlertChart;
+}, 0);
+
+/* ── Feed Mini-Chart: dual-axis line (avg size + msg/s) ── */
+function renderFeedChart() {
+  const canvas = document.getElementById('feedChart');
+  const wrap = document.getElementById('feedChartWrap');
+  const tooltip = document.getElementById('feedChartTooltip');
+  if (!canvas || !wrap) return;
+  const ctx = canvas.getContext('2d');
+  const rect = wrap.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width;
+  const H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const data = feedTimeseries;
+  if (data.length < 2) {
+    ctx.fillStyle = getCssVar('--text-dim');
+    ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'center';
+    ctx.fillText('collecting data...', W / 2, H / 2);
+    return;
+  }
+
+  const pad = { top: 6, right: 40, bottom: 16, left: 40 };
+  const cW = W - pad.left - pad.right;
+  const cH = H - pad.top - pad.bottom;
+
+  // Scales
+  const sizes = data.map(d => d.avgSize);
+  const counts = data.map(d => d.count);
+  let sMin = Math.min(...sizes), sMax = Math.max(...sizes);
+  let cMin = 0, cMax = Math.max(...counts);
+  if (sMin === sMax) { sMin = 0; sMax = sMax * 2 || 100; }
+  if (cMax === 0) cMax = 1;
+  const sPad = (sMax - sMin) * 0.1;
+  sMin = Math.max(0, sMin - sPad); sMax = sMax + sPad;
+  cMax = cMax * 1.2;
+
+  const xScale = (i) => pad.left + (i / (data.length - 1)) * cW;
+  const yScaleSize = (v) => pad.top + cH - ((v - sMin) / (sMax - sMin)) * cH;
+  const yScaleCount = (v) => pad.top + cH - ((v - cMin) / (cMax - cMin)) * cH;
+
+  // Y-axis labels (left = size, right = count)
+  ctx.font = '9px ' + getComputedStyle(document.body).fontFamily;
+  ctx.fillStyle = getCssVar('--text-dim');
+  ctx.textAlign = 'right';
+  ctx.fillText(formatBytes(sMax), pad.left - 4, pad.top + 6);
+  ctx.fillText(formatBytes(sMin), pad.left - 4, pad.top + cH);
+  ctx.textAlign = 'left';
+  ctx.fillText(Math.round(cMax), W - pad.right + 4, pad.top + 6);
+  ctx.fillText('0', W - pad.right + 4, pad.top + cH);
+
+  // X-axis time labels
+  ctx.textAlign = 'center';
+  ctx.fillStyle = getCssVar('--text-dim');
+  const xLabels = Math.min(4, data.length);
+  for (let i = 0; i < xLabels; i++) {
+    const idx = Math.floor((i / (xLabels - 1)) * (data.length - 1));
+    const d = new Date(data[idx].ts);
+    ctx.fillText(`${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`, xScale(idx), H - 2);
+  }
+
+  // Grid
+  ctx.strokeStyle = getCssVar('--border');
+  ctx.lineWidth = 0.3;
+  for (let i = 0; i <= 3; i++) {
+    const y = pad.top + (i / 3) * cH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+  }
+
+  // Area fill for size
+  const cyanColor = getCssVar('--cyan');
+  ctx.beginPath();
+  ctx.moveTo(xScale(0), yScaleSize(sizes[0]));
+  for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScaleSize(sizes[i]));
+  ctx.lineTo(xScale(data.length - 1), pad.top + cH);
+  ctx.lineTo(xScale(0), pad.top + cH);
+  ctx.closePath();
+  ctx.fillStyle = cyanColor.replace(')', ', 0.06)').replace('rgb', 'rgba');
+  ctx.fill();
+
+  // Size line (cyan)
+  ctx.beginPath();
+  ctx.moveTo(xScale(0), yScaleSize(sizes[0]));
+  for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScaleSize(sizes[i]));
+  ctx.strokeStyle = cyanColor;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Count line (magenta, dashed)
+  const magentaColor = getCssVar('--magenta');
+  ctx.beginPath();
+  ctx.moveTo(xScale(0), yScaleCount(counts[0]));
+  for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScaleCount(counts[i]));
+  ctx.strokeStyle = magentaColor;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 2]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Hover crosshair + tooltip
+  if (canvas._hovering && data.length > 1) {
+    const mx = canvas._hoverX;
+    const idx = Math.round(((mx - pad.left) / cW) * (data.length - 1));
+    const ci = Math.max(0, Math.min(data.length - 1, idx));
+    const px = xScale(ci);
+
+    // Vertical crosshair
+    ctx.strokeStyle = getCssVar('--text-dim');
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(px, pad.top); ctx.lineTo(px, pad.top + cH); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Dot on size line
+    ctx.fillStyle = cyanColor;
+    ctx.beginPath(); ctx.arc(px, yScaleSize(sizes[ci]), 3, 0, Math.PI * 2); ctx.fill();
+    // Dot on count line
+    ctx.fillStyle = magentaColor;
+    ctx.beginPath(); ctx.arc(px, yScaleCount(counts[ci]), 3, 0, Math.PI * 2); ctx.fill();
+
+    // Tooltip
+    const d = new Date(data[ci].ts);
+    const timeStr = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
+    tooltip.innerHTML = `<div style="color:var(--text-muted)">${timeStr}</div><div><span style="color:${cyanColor}">avg:</span> ${formatBytes(data[ci].avgSize)}</div><div><span style="color:${magentaColor}">msg/s:</span> ${data[ci].count}</div>`;
+    tooltip.style.display = 'block';
+    const tipX = px + 10 > W - 80 ? px - 90 : px + 10;
+    tooltip.style.left = tipX + 'px';
+    tooltip.style.top = '4px';
+  }
+}
+
+/* ── Alert Mini-Chart: stacked bar (warnings + criticals per bucket) ── */
+function renderAlertChart() {
+  const canvas = document.getElementById('alertChart');
+  const wrap = document.getElementById('alertChartWrap');
+  const tooltip = document.getElementById('alertChartTooltip');
+  if (!canvas || !wrap) return;
+  const ctx = canvas.getContext('2d');
+  const rect = wrap.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width;
+  const H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const data = alertTimeseries;
+  if (data.length < 1) {
+    ctx.fillStyle = getCssVar('--text-dim');
+    ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'center';
+    ctx.fillText('no alert data yet', W / 2, H / 2);
+    return;
+  }
+
+  const pad = { top: 4, right: 8, bottom: 14, left: 8 };
+  const cW = W - pad.left - pad.right;
+  const cH = H - pad.top - pad.bottom;
+
+  const maxVal = Math.max(...data.map(d => d.warnings + d.criticals), 1) * 1.2;
+  const barW = Math.max(2, (cW / Math.max(data.length, 1)) - 1);
+
+  const yScale = (v) => pad.top + cH - (v / maxVal) * cH;
+  const xPos = (i) => pad.left + (i / Math.max(data.length, 1)) * cW;
+
+  // X time labels
+  ctx.font = '8px ' + getComputedStyle(document.body).fontFamily;
+  ctx.fillStyle = getCssVar('--text-dim');
+  ctx.textAlign = 'center';
+  const xLabels = Math.min(4, data.length);
+  for (let i = 0; i < xLabels; i++) {
+    const idx = Math.floor((i / Math.max(xLabels - 1, 1)) * (data.length - 1));
+    const d = new Date(data[idx].ts);
+    ctx.fillText(`${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`, xPos(idx) + barW / 2, H - 2);
+  }
+
+  // Bars
+  const yellowColor = getCssVar('--yellow');
+  const redColor = getCssVar('--red');
+
+  for (let i = 0; i < data.length; i++) {
+    const x = xPos(i);
+    const warnH = (data[i].warnings / maxVal) * cH;
+    const critH = (data[i].criticals / maxVal) * cH;
+
+    // Warning bar (bottom)
+    if (warnH > 0) {
+      ctx.fillStyle = yellowColor;
+      ctx.fillRect(x, yScale(data[i].warnings), barW, warnH);
+    }
+    // Critical bar (stacked on top)
+    if (critH > 0) {
+      ctx.fillStyle = redColor;
+      ctx.fillRect(x, yScale(data[i].warnings + data[i].criticals), barW, critH);
+    }
+  }
+
+  // Hover
+  if (canvas._hovering && data.length > 0) {
+    const mx = canvas._hoverX;
+    const idx = Math.round(((mx - pad.left) / cW) * (data.length - 1));
+    const ci = Math.max(0, Math.min(data.length - 1, idx));
+    const px = xPos(ci) + barW / 2;
+
+    // Highlight bar border
+    ctx.strokeStyle = getCssVar('--text');
+    ctx.lineWidth = 1;
+    const totalH = ((data[ci].warnings + data[ci].criticals) / maxVal) * cH;
+    if (totalH > 0) {
+      ctx.strokeRect(xPos(ci) - 1, yScale(data[ci].warnings + data[ci].criticals) - 1, barW + 2, totalH + 2);
+    }
+
+    // Tooltip
+    const d = new Date(data[ci].ts);
+    const timeStr = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
+    tooltip.innerHTML = `<div style="color:var(--text-muted)">${timeStr}</div><div><span style="color:${yellowColor}">warn:</span> ${data[ci].warnings}</div><div><span style="color:${redColor}">crit:</span> ${data[ci].criticals}</div>`;
+    tooltip.style.display = 'block';
+    const tipX = px + 10 > W - 80 ? px - 90 : px + 10;
+    tooltip.style.left = tipX + 'px';
+    tooltip.style.top = '4px';
+  }
 }
 
 /* ── Alert Config Modal ── */
@@ -2271,6 +2649,8 @@ async function init() {
 window.addEventListener('resize', () => {
   if (state.historyData.length > 0) renderChart();
   renderGlobalChart();
+  renderFeedChart();
+  renderAlertChart();
 });
 
 // Close modal on overlay click
