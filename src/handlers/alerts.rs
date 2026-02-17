@@ -40,3 +40,26 @@ pub async fn set_alert_config(
     alert_engine.set_config(config.clone()).await;
     HttpResponse::Ok().json(config)
 }
+
+/// GET /api/alerts/download/{id} — download captured oversized message payload.
+pub async fn download_capture(
+    path: web::Path<u64>,
+    alert_engine: web::Data<AlertEngine>,
+) -> HttpResponse {
+    let alert_id = path.into_inner();
+    match alert_engine.get_capture(alert_id).await {
+        Some(msg) => HttpResponse::Ok()
+            .content_type("application/octet-stream")
+            .insert_header((
+                "Content-Disposition",
+                format!(
+                    "attachment; filename=\"msg-{}-p{}-o{}.bin\"",
+                    msg.topic, msg.partition, msg.offset
+                ),
+            ))
+            .body(msg.payload),
+        None => HttpResponse::NotFound().json(serde_json::json!({
+            "error": "Capture not found or expired"
+        })),
+    }
+}

@@ -9,7 +9,7 @@ mod tracker;
 
 use crate::config::{AppConfig, Args};
 use crate::kafka::admin;
-use crate::models::{MessageSizeEvent, WsMessage};
+use crate::models::{CapturedMessage, MessageSizeEvent, WsMessage};
 use crate::storage::TimeSeriesStorage;
 use crate::tracker::alerts::AlertEngine;
 use crate::tracker::stats::StatsEngine;
@@ -69,6 +69,7 @@ impl TopicManager {
         let alerts = self.alert_engine.clone();
         let ws_tx = self.ws_broadcast.clone();
         let event_tx = tx.clone();
+        let capture_threshold = self.alert_engine.default_warning;
 
         tokio::spawn(async move {
             let mut event_rx = event_tx.subscribe();
@@ -81,6 +82,7 @@ impl TopicManager {
                     consumer_topic,
                     group,
                     event_tx,
+                    capture_threshold,
                 )
                 .await;
             });
@@ -93,11 +95,27 @@ impl TopicManager {
                         stats.record_event(&event).await;
 
                         // Check for alerts
-                        if let Some(alert) = alerts.check_event(&event).await {
+                        if let Some(mut alert) = alerts.check_event(&event).await {
+                            // If the event captured the oversized payload, store it
+                            if let Some(payload) = &event.captured_payload {
+                                let captured = CapturedMessage {
+                                    alert_id: alert.id,
+                                    topic: event.topic.clone(),
+                                    partition: event.partition,
+                                    offset: event.offset,
+                                    payload: payload.clone(),
+                                    key: event.captured_key.clone(),
+                                    size_bytes: event.size_bytes,
+                                    timestamp: event.timestamp,
+                                };
+                                alert.capture_id = Some(alert.id);
+                                alerts.store_capture(alert.id, captured).await;
+                            }
                             let _ = ws_tx.send(WsMessage::Alert(alert));
                         }
 
                         // Forward size event to WebSocket clients
+                        // (captured_payload is #[serde(skip)] so it won't be serialized)
                         let _ = ws_tx.send(WsMessage::SizeEvent(event));
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -254,6 +272,10 @@ async fn main() -> std::io::Result<()> {
                 web::get().to(handlers::stats::get_topic_stats),
             )
             .route("/api/alerts", web::get().to(handlers::alerts::get_alerts))
+            .route(
+                "/api/alerts/download/{id}",
+                web::get().to(handlers::alerts::download_capture),
+            )
             .route(
                 "/api/alerts/config",
                 web::get().to(handlers::alerts::get_alert_configs),

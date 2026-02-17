@@ -254,6 +254,8 @@ mod tests {
             size_bytes: size,
             key_size: None,
             timestamp: Utc::now(),
+            captured_payload: None,
+            captured_key: None,
         }
     }
 

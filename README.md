@@ -5,7 +5,7 @@ Real-time Kafka message size monitoring dashboard with configurable alerts and h
 ## Features
 
 - **Real-time size tracking** per topic: avg, min, max, percentiles (p50/p95/p99 via reservoir sampling), msg/sec, bytes/sec
-- **Oversized message alerts** with configurable per-topic warning and critical thresholds
+- **Oversized message alerts** with configurable per-topic warning and critical thresholds, plus **downloadable payload capture** for messages exceeding the threshold
 - **7-day historical analytics** with per-minute aggregation and interactive time-series charts
 - **Live feed** of message sizes with color-coded severity (green/yellow/red)
 - **WebSocket streaming** with rate limiting (50 events/sec), topic filtering, and auto-reconnect
@@ -95,6 +95,7 @@ The web UI uses a **terminal/chalk theme** inspired by ANSI terminal colors:
 | `/api/topics` | GET | List all topics with summary stats and alert status |
 | `/api/stats/{topic}` | GET | Detailed stats: count, avg, min, max, p50, p95, p99, rates |
 | `/api/alerts` | GET | Recent alerts (`?limit=N`, default 100) |
+| `/api/alerts/download/{id}` | GET | Download captured oversized message payload (binary) |
 | `/api/alerts/config` | GET | All alert threshold configurations |
 | `/api/alerts/config` | POST | Set threshold for a topic |
 | `/api/history/{topic}` | GET | Time-series data (`?range=1h\|6h\|24h\|7d`) |
@@ -126,12 +127,13 @@ Clients can filter by topic:
 
 ```
 Kafka Topic
-  -> StreamConsumer (extracts payload.len() only, never materializes body)
+  -> StreamConsumer (extracts payload.len(); captures raw bytes if >= warning threshold)
   -> broadcast::Sender<MessageSizeEvent>
   -> Event Processor:
       -> StatsEngine.record_event()    (running stats + reservoir sampling)
       -> AlertEngine.check_event()     (threshold check -> alert if exceeded)
-      -> ws_broadcast                  (-> WebSocket clients)
+      -> If alert + captured payload -> store CapturedMessage (max 100, LRU eviction)
+      -> ws_broadcast                  (-> WebSocket clients; captured_payload is #[serde(skip)])
   -> Background Tasks:
       -> Stats Broadcaster (1s)        (all stats -> WebSocket)
       -> Minute Aggregator (60s)       (snapshot -> TimeSeriesStorage)
@@ -168,7 +170,7 @@ src/
 ### Key Design Decisions
 
 - **Reservoir sampling (Algorithm R)** with 1000 samples for accurate percentile estimation without unbounded memory growth
-- **Message body never materialized** into String/Vec; only `payload.len()` is extracted for minimal memory overhead
+- **Message body captured only when oversized** (>= warning threshold); normal messages only extract `payload.len()` for minimal memory overhead. Up to 100 captured payloads stored with LRU eviction
 - **Embedded single-file HTML** via `include_str!` for zero-dependency deployment (no static file serving needed)
 - **Broadcast channels** per topic for fan-out to multiple WebSocket clients without copying
 - **Rate limiting** on WebSocket (50 events/sec) to prevent browser flooding on high-throughput topics
@@ -191,13 +193,13 @@ Two-stage build for minimal runtime image:
 
 ### Seed Producer
 
-`scripts/seed-sizes.sh` generates messages with varied sizes across 4 topics:
+`scripts/seed-sizes.sh` uses piped stdin to long-running `kafka-console-producer` processes for efficient message generation across 4 topics:
 
-| Topic | Normal Size | Occasional Large | Frequency |
+| Topic | Normal Size | Alert Simulation | Frequency |
 |-------|-------------|-------------------|-----------|
-| `orders` | 200-800 B | 50-200 KB (every 20th) | 1/sec |
-| `users` | 100-500 B | none | 1/sec |
-| `logs` | 500-5000 B | 1-1.5 MB (every 50th) | 1/sec |
+| `orders` | 200-800 B | ~1.2 MB every 10th iter (WARNING) | 1/sec |
+| `users` | 100-500 B | ~2 MB every 25th iter (WARNING) | 1/sec |
+| `logs` | 500-5000 B | ~12 MB every 15th iter (CRITICAL) | 1/sec |
 | `metrics` | 50-200 B | none | 3/sec |
 
 ## Build Features
@@ -213,7 +215,7 @@ Two-stage build for minimal runtime image:
 cargo test
 ```
 
-**37 tests** across all modules:
+**40 tests** across all modules:
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
@@ -221,7 +223,7 @@ cargo test
 | `models` | 6 | Serialization roundtrips, serde attributes |
 | `handlers::history` | 1 | Range string parsing |
 | `tracker::stats` | 13 | Running stats, reservoir sampling, percentiles, rates, snapshots |
-| `tracker::alerts` | 8 | Threshold checks, circular buffer, per-topic config, enable/disable |
+| `tracker::alerts` | 11 | Threshold checks, circular buffer, per-topic config, enable/disable, capture store/eviction |
 | `storage` | 7 | Circular buffer, range queries, eviction, multi-topic independence |
 
 ## Tech Stack

@@ -10,6 +10,13 @@ pub struct MessageSizeEvent {
     pub size_bytes: usize,
     pub key_size: Option<usize>,
     pub timestamp: DateTime<Utc>,
+    /// Raw payload bytes captured when message exceeds alert threshold.
+    /// Skipped during serialization (never sent over WebSocket).
+    #[serde(skip)]
+    pub captured_payload: Option<Vec<u8>>,
+    /// Raw key bytes captured alongside oversized payload.
+    #[serde(skip)]
+    pub captured_key: Option<Vec<u8>>,
 }
 
 /// Real-time stats for a single topic
@@ -45,6 +52,22 @@ pub struct Alert {
     pub severity: AlertSeverity,
     pub message_size: usize,
     pub threshold: usize,
+    pub timestamp: DateTime<Utc>,
+    /// If the oversized message payload was captured, this holds the alert ID for download.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture_id: Option<u64>,
+}
+
+/// A captured oversized message payload available for download.
+#[derive(Debug, Clone)]
+pub struct CapturedMessage {
+    pub alert_id: u64,
+    pub topic: String,
+    pub partition: i32,
+    pub offset: i64,
+    pub payload: Vec<u8>,
+    pub key: Option<Vec<u8>>,
+    pub size_bytes: usize,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -146,6 +169,8 @@ mod tests {
             size_bytes: 1024,
             key_size: Some(8),
             timestamp: Utc::now(),
+            captured_payload: None,
+            captured_key: None,
         };
         let msg = WsMessage::SizeEvent(event);
         let json = serde_json::to_string(&msg).unwrap();

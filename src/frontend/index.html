@@ -361,6 +361,20 @@ body::after {
 .alert-detail .size { color: var(--red); font-weight: 600; }
 .alert-detail .threshold { color: var(--text-muted); }
 .alert-ts { color: var(--text-muted); font-size: 11px; }
+.alert-dl {
+  color: var(--cyan);
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--cyan-dim);
+  border-radius: 3px;
+  text-decoration: none;
+  font-family: var(--font);
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+.alert-dl:hover { background: var(--cyan-dim); color: var(--bg); border-color: var(--cyan); }
 .alerts-empty { color: var(--text-dim); text-align: center; padding: 30px 0; font-style: italic; }
 
 /* ── History Chart ── */
@@ -878,6 +892,9 @@ function renderAlerts() {
   for (const a of state.alerts.slice(0, 50)) {
     const cls = a.severity === 'critical' ? 'critical' : 'warning';
     const icon = a.severity === 'critical' ? '!!' : '!';
+    const dlBtn = a.capture_id
+      ? `<a class="alert-dl" href="/api/alerts/download/${a.capture_id}" download title="Download captured payload">[dl]</a>`
+      : '';
     html += `<div class="alert-entry ${cls}">
       <span class="alert-icon">[${icon}]</span>
       <span class="alert-topic">${a.topic}</span>
@@ -885,6 +902,7 @@ function renderAlerts() {
         <span class="size">${formatBytes(a.message_size)}</span>
         &gt; <span class="threshold">${formatBytes(a.threshold)}</span>
       </span>
+      ${dlBtn}
       <span class="alert-ts">${formatTime(a.timestamp)}</span>
     </div>`;
   }

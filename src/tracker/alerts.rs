@@ -1,10 +1,11 @@
-use crate::models::{Alert, AlertConfig, AlertSeverity, MessageSizeEvent};
+use crate::models::{Alert, AlertConfig, AlertSeverity, CapturedMessage, MessageSizeEvent};
 use chrono::Utc;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 const MAX_ALERTS: usize = 1000;
+const MAX_CAPTURES: usize = 100;
 
 /// Alert engine that checks message sizes against configurable thresholds.
 #[derive(Clone)]
@@ -12,6 +13,9 @@ pub struct AlertEngine {
     configs: Arc<RwLock<HashMap<String, AlertConfig>>>,
     alerts: Arc<RwLock<VecDeque<Alert>>>,
     next_id: Arc<RwLock<u64>>,
+    captures: Arc<RwLock<HashMap<u64, CapturedMessage>>>,
+    /// Ordered list of capture IDs for eviction (oldest first).
+    capture_order: Arc<RwLock<VecDeque<u64>>>,
     pub default_warning: usize,
     pub default_critical: usize,
 }
@@ -22,6 +26,8 @@ impl AlertEngine {
             configs: Arc::new(RwLock::new(HashMap::new())),
             alerts: Arc::new(RwLock::new(VecDeque::with_capacity(MAX_ALERTS))),
             next_id: Arc::new(RwLock::new(1)),
+            captures: Arc::new(RwLock::new(HashMap::new())),
+            capture_order: Arc::new(RwLock::new(VecDeque::new())),
             default_warning,
             default_critical,
         }
@@ -63,6 +69,7 @@ impl AlertEngine {
                 message_size: event.size_bytes,
                 threshold,
                 timestamp: Utc::now(),
+                capture_id: None, // Set by caller if payload was captured
             };
             *id += 1;
             drop(id);
@@ -108,10 +115,37 @@ impl AlertEngine {
         configs.values().cloned().collect()
     }
 
-    /// Clear all alerts (e.g., on broker change).
+    /// Store a captured oversized message payload linked to an alert.
+    /// Evicts the oldest capture when the store exceeds MAX_CAPTURES.
+    pub async fn store_capture(&self, alert_id: u64, msg: CapturedMessage) {
+        let mut captures = self.captures.write().await;
+        let mut order = self.capture_order.write().await;
+
+        // Evict oldest if at capacity
+        while order.len() >= MAX_CAPTURES {
+            if let Some(old_id) = order.pop_front() {
+                captures.remove(&old_id);
+            }
+        }
+
+        captures.insert(alert_id, msg);
+        order.push_back(alert_id);
+    }
+
+    /// Retrieve a captured message by alert ID.
+    pub async fn get_capture(&self, alert_id: u64) -> Option<CapturedMessage> {
+        let captures = self.captures.read().await;
+        captures.get(&alert_id).cloned()
+    }
+
+    /// Clear all alerts and captures (e.g., on broker change).
     pub async fn clear_alerts(&self) {
         let mut alerts = self.alerts.write().await;
         alerts.clear();
+        let mut captures = self.captures.write().await;
+        captures.clear();
+        let mut order = self.capture_order.write().await;
+        order.clear();
     }
 }
 
@@ -128,6 +162,8 @@ mod tests {
             size_bytes: size,
             key_size: None,
             timestamp: Utc::now(),
+            captured_payload: None,
+            captured_key: None,
         }
     }
 
@@ -224,5 +260,54 @@ mod tests {
         let a2 = engine.check_event(&make_event("test", 300)).await.unwrap();
         assert_eq!(a1.id, 1);
         assert_eq!(a2.id, 2);
+    }
+
+    #[tokio::test]
+    async fn test_capture_stored_on_alert() {
+        let engine = AlertEngine::new(100, 1000);
+        let captured = CapturedMessage {
+            alert_id: 1,
+            topic: "test".into(),
+            partition: 0,
+            offset: 42,
+            payload: vec![0xDE, 0xAD, 0xBE, 0xEF],
+            key: None,
+            size_bytes: 4,
+            timestamp: Utc::now(),
+        };
+        engine.store_capture(1, captured).await;
+        let retrieved = engine.get_capture(1).await;
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().payload, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+    }
+
+    #[tokio::test]
+    async fn test_capture_eviction() {
+        let engine = AlertEngine::new(100, 1000);
+        // Store MAX_CAPTURES + 10 captures
+        for i in 0..(super::MAX_CAPTURES + 10) as u64 {
+            let captured = CapturedMessage {
+                alert_id: i,
+                topic: "test".into(),
+                partition: 0,
+                offset: i as i64,
+                payload: vec![i as u8],
+                key: None,
+                size_bytes: 1,
+                timestamp: Utc::now(),
+            };
+            engine.store_capture(i, captured).await;
+        }
+        // Oldest 10 should be evicted
+        assert!(engine.get_capture(0).await.is_none());
+        assert!(engine.get_capture(9).await.is_none());
+        // Newest should still be there
+        assert!(engine.get_capture(super::MAX_CAPTURES as u64 + 9).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_capture_returns_none_for_missing() {
+        let engine = AlertEngine::new(100, 1000);
+        assert!(engine.get_capture(999).await.is_none());
     }
 }

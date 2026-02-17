@@ -22,9 +22,9 @@
 - `docker compose -f docker-compose.full.yml up -d` runs Kafka (KRaft) + App + seed producer
 - Dev server: `cargo run -- --brokers localhost:9092 --port 3000`
 - Dashboard at http://localhost:3000
-- **37 tests**: config(2) + models(6) + stats(13) + alerts(8) + storage(7) + handlers(1)
+- **40 tests**: config(2) + models(6) + stats(13) + alerts(11) + storage(7) + handlers(1)
 - **Terminal/chalk theme**: dark bg (#0d1117), ANSI colors, monospace font, scanline overlay
-- Features: real-time size tracking (avg/min/max/p50/p95/p99), oversized message alerts, 7-day history
+- Features: real-time size tracking (avg/min/max/p50/p95/p99), oversized message alerts with payload download, 7-day history
 
 ## Memory & Plan File Convention
 - Memory files: `memory-ProjectName.md` — live in `.claude/projects/.../memory/` AND copied into each project's git repo at `memory/`
