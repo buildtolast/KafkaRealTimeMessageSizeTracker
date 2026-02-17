@@ -227,19 +227,96 @@ body::after {
 .btn-danger { color: var(--red); border-color: var(--red-dim); }
 .btn-danger:hover { background: rgba(255,85,85,0.1); border-color: var(--red); }
 
+/* ── Resize Handles ── */
+.resize-handle-v {
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.resize-handle-v:hover, .resize-handle-v.active {
+  background: var(--cyan-dim);
+}
+.resize-handle-v::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 1px;
+  width: 3px;
+  height: 24px;
+  transform: translateY(-50%);
+  border-left: 1px solid var(--border-bright);
+  border-right: 1px solid var(--border-bright);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.resize-handle-v:hover::after, .resize-handle-v.active::after { opacity: 1; }
+
+.resize-handle-h {
+  height: 5px;
+  cursor: row-resize;
+  background: transparent;
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  grid-column: 1 / -1;
+  transition: background 0.15s;
+}
+.resize-handle-h:hover, .resize-handle-h.active {
+  background: var(--cyan-dim);
+}
+.resize-handle-h::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  height: 3px;
+  width: 24px;
+  transform: translateX(-50%);
+  border-top: 1px solid var(--border-bright);
+  border-bottom: 1px solid var(--border-bright);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.resize-handle-h:hover::after, .resize-handle-h.active::after { opacity: 1; }
+
+body.resizing { cursor: col-resize !important; user-select: none !important; }
+body.resizing-row { cursor: row-resize !important; user-select: none !important; }
+body.resizing *, body.resizing-row * { user-select: none !important; pointer-events: none !important; }
+body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-events: auto !important; }
+
 /* ── Main Content — Sidebar + Panels ── */
 .main-content {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  grid-template-rows: 1fr auto;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+}
+.panels-area {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  overflow: hidden;
+}
+.panels-area > .topic-sidebar {
+  width: 280px;
+  min-width: 180px;
+  max-width: 50%;
+  flex-shrink: 0;
+}
+.panels-area > .panels-wrap {
+  flex: 1;
+  min-width: 200px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Topic Sidebar (Left Panel) ── */
 .topic-sidebar {
-  grid-row: 1;
-  grid-column: 1;
-  border-right: 1px solid var(--border);
+  border-right: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -338,30 +415,34 @@ body::after {
   text-align: center;
 }
 
-/* ── Right Panels (3 rows x 2 cols + global spanning) ── */
-.panels {
-  grid-row: 1;
-  grid-column: 2;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr auto;
-  gap: 0;
+/* ── Right Panels (rows of 2 cols + global spanning) ── */
+.panel-row {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 80px;
   overflow: hidden;
+}
+.panel-row > .panel {
+  flex: 1;
+  min-width: 100px;
+}
+.panel-row > .panel:first-child {
+  border-right: none;
 }
 
 .panel {
-  border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.panel:nth-child(2n) { border-right: none; }
 .panel.panel-global {
-  grid-column: 1 / 3;
-  border-right: none;
   border-bottom: none;
-  max-height: 200px;
+  min-height: 80px;
+  max-height: 260px;
+  flex: 0 0 auto;
+  height: 180px;
 }
 
 .panel-header {
@@ -458,6 +539,26 @@ body::after {
 .legend-count::before { background: var(--magenta); }
 .legend-alerts::before { background: var(--red); }
 .legend-warnings::before { background: var(--yellow); }
+
+.mini-chart-range {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 0 8px;
+}
+.mini-range-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 9px;
+  padding: 1px 5px;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 2px;
+  transition: all 0.15s;
+}
+.mini-range-btn:hover { color: var(--text); border-color: var(--text-dim); }
+.mini-range-btn.active { color: var(--cyan); border-color: var(--cyan); background: rgba(139,233,253,0.08); }
 
 /* ── Stats Detail ── */
 .stats-empty {
@@ -611,8 +712,6 @@ body::after {
 
 /* ── Footer / Status Bar ── */
 .status-bar {
-  grid-row: 2;
-  grid-column: 1 / 3;
   background: var(--surface);
   border-top: 1px solid var(--border);
   padding: 4px 20px;
@@ -621,6 +720,7 @@ body::after {
   gap: 16px;
   font-size: 11px;
   color: var(--text-dim);
+  flex-shrink: 0;
 }
 .status-item { display: flex; align-items: center; gap: 4px; }
 .status-value { color: var(--text); }
@@ -998,9 +1098,10 @@ body::after {
   </div>
 
   <!-- Main Content -->
-  <div class="main-content">
+  <div class="main-content" id="mainContent">
+   <div class="panels-area" id="panelsArea">
     <!-- Topic Sidebar (Left) -->
-    <div class="topic-sidebar">
+    <div class="topic-sidebar" id="topicSidebar">
       <div class="topic-sidebar-header">
         <span class="prompt">&gt;</span> Topics
         <span id="topicCount" style="color:var(--magenta)">(0)</span>
@@ -1010,80 +1111,112 @@ body::after {
       </div>
     </div>
 
+    <!-- Sidebar Resize Handle -->
+    <div class="resize-handle-v" id="sidebarResizeHandle"></div>
+
     <!-- Right Panels -->
-    <div class="panels">
-      <!-- Live Feed -->
-      <div class="panel" style="display:flex;flex-direction:column;">
-        <div class="panel-header">
-          <span class="prompt">&gt;</span> live_feed
-          <span class="count" id="feedCount">(0)</span>
-        </div>
-        <div class="mini-chart-legend">
-          <span class="legend-size">avg size</span>
-          <span class="legend-count">msg/s</span>
-        </div>
-        <div class="mini-chart-wrap" id="feedChartWrap">
-          <canvas id="feedChart"></canvas>
-          <div class="mini-chart-tooltip" id="feedChartTooltip"></div>
-        </div>
-        <div class="panel-body" id="liveFeed"></div>
-      </div>
-
-      <!-- Stats Detail -->
-      <div class="panel">
-        <div class="panel-header">
-          <span class="prompt">&gt;</span> stats
-          <span id="statsTopicLabel" style="color:var(--cyan)"></span>
-        </div>
-        <div class="panel-body" id="statsPanel">
-          <div class="stats-empty">select a topic to view stats</div>
-        </div>
-      </div>
-
-      <!-- Alerts -->
-      <div class="panel" style="display:flex;flex-direction:column;">
-        <div class="panel-header">
-          <span class="prompt">&gt;</span> alerts
-          <span class="count" id="alertCount">(0)</span>
-          <div class="alert-time-filter">
-            <button class="alert-time-btn" data-window="5" onclick="setAlertWindow(5,this)">5m</button>
-            <button class="alert-time-btn" data-window="15" onclick="setAlertWindow(15,this)">15m</button>
-            <button class="alert-time-btn" data-window="60" onclick="setAlertWindow(60,this)">1h</button>
-            <button class="alert-time-btn active" data-window="0" onclick="setAlertWindow(0,this)">all</button>
+    <div class="panels-wrap" id="panelsWrap">
+      <!-- Row 1: Live Feed | Stats -->
+      <div class="panel-row" id="panelRow1">
+        <div class="panel" style="display:flex;flex-direction:column;">
+          <div class="panel-header">
+            <span class="prompt">&gt;</span> live_feed
+            <span class="count" id="feedCount">(0)</span>
+            <div class="mini-chart-range" id="feedChartRange">
+              <button class="mini-range-btn active" onclick="setFeedChartMode('live',this)">live</button>
+              <button class="mini-range-btn" onclick="setFeedChartMode('1h',this)">1h</button>
+              <button class="mini-range-btn" onclick="setFeedChartMode('6h',this)">6h</button>
+              <button class="mini-range-btn" onclick="setFeedChartMode('24h',this)">24h</button>
+              <button class="mini-range-btn" onclick="setFeedChartMode('7d',this)">7d</button>
+            </div>
           </div>
-          <button class="btn" style="font-size:10px;padding:2px 8px;margin-left:4px" onclick="openAlertConfig()">config</button>
-        </div>
-        <div class="mini-chart-legend">
-          <span class="legend-warnings">warnings</span>
-          <span class="legend-alerts">critical</span>
-        </div>
-        <div class="mini-chart-wrap" id="alertChartWrap" style="height:80px;">
-          <canvas id="alertChart"></canvas>
-          <div class="mini-chart-tooltip" id="alertChartTooltip"></div>
-        </div>
-        <div class="panel-body" id="alertsPanel">
-          <div class="alerts-empty">no alerts</div>
-        </div>
-      </div>
-
-      <!-- History Chart (selected topic) -->
-      <div class="panel">
-        <div class="panel-header">
-          <span class="prompt">&gt;</span> history
-          <span id="historyTopicLabel" style="color:var(--cyan)"></span>
-        </div>
-        <div class="panel-body" id="historyPanel">
-          <div class="chart-controls">
-            <button class="chart-range-btn active" data-range="1h" onclick="setRange('1h',this)">1h</button>
-            <button class="chart-range-btn" data-range="6h" onclick="setRange('6h',this)">6h</button>
-            <button class="chart-range-btn" data-range="24h" onclick="setRange('24h',this)">24h</button>
-            <button class="chart-range-btn" data-range="7d" onclick="setRange('7d',this)">7d</button>
+          <div class="mini-chart-legend" id="feedChartLegend">
+            <span class="legend-size">avg size</span>
+            <span class="legend-count">msg/s</span>
           </div>
-          <div class="chart-container" id="chartContainer">
-            <canvas id="historyChart"></canvas>
+          <div class="mini-chart-wrap" id="feedChartWrap">
+            <canvas id="feedChart"></canvas>
+            <div class="mini-chart-tooltip" id="feedChartTooltip"></div>
+          </div>
+          <div class="panel-body" id="liveFeed"></div>
+        </div>
+
+        <!-- Column Resize Handle -->
+        <div class="resize-handle-v" id="colResizeHandle1"></div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <span class="prompt">&gt;</span> stats
+            <span id="statsTopicLabel" style="color:var(--cyan)"></span>
+          </div>
+          <div class="panel-body" id="statsPanel">
+            <div class="stats-empty">select a topic to view stats</div>
           </div>
         </div>
       </div>
+
+      <!-- Row 1/2 Resize Handle -->
+      <div class="resize-handle-h" id="rowResizeHandle1"></div>
+
+      <!-- Row 2: Alerts | History -->
+      <div class="panel-row" id="panelRow2">
+        <div class="panel" style="display:flex;flex-direction:column;">
+          <div class="panel-header">
+            <span class="prompt">&gt;</span> alerts
+            <span class="count" id="alertCount">(0)</span>
+            <div class="alert-time-filter">
+              <button class="alert-time-btn" data-window="5" onclick="setAlertWindow(5,this)">5m</button>
+              <button class="alert-time-btn" data-window="15" onclick="setAlertWindow(15,this)">15m</button>
+              <button class="alert-time-btn" data-window="60" onclick="setAlertWindow(60,this)">1h</button>
+              <button class="alert-time-btn active" data-window="0" onclick="setAlertWindow(0,this)">all</button>
+            </div>
+            <button class="btn" style="font-size:10px;padding:2px 8px;margin-left:4px" onclick="openAlertConfig()">config</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);flex-shrink:0;">
+            <div class="mini-chart-legend" style="border-bottom:none;flex:1;">
+              <span class="legend-warnings">warnings</span>
+              <span class="legend-alerts">critical</span>
+            </div>
+            <div class="mini-chart-range" id="alertChartRange">
+              <button class="mini-range-btn active" onclick="setAlertChartMode('live',this)">live</button>
+              <button class="mini-range-btn" onclick="setAlertChartMode('1h',this)">1h</button>
+              <button class="mini-range-btn" onclick="setAlertChartMode('6h',this)">6h</button>
+              <button class="mini-range-btn" onclick="setAlertChartMode('all',this)">all</button>
+            </div>
+          </div>
+          <div class="mini-chart-wrap" id="alertChartWrap" style="height:80px;">
+            <canvas id="alertChart"></canvas>
+            <div class="mini-chart-tooltip" id="alertChartTooltip"></div>
+          </div>
+          <div class="panel-body" id="alertsPanel">
+            <div class="alerts-empty">no alerts</div>
+          </div>
+        </div>
+
+        <!-- Column Resize Handle -->
+        <div class="resize-handle-v" id="colResizeHandle2"></div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <span class="prompt">&gt;</span> history
+            <span id="historyTopicLabel" style="color:var(--cyan)"></span>
+          </div>
+          <div class="panel-body" id="historyPanel">
+            <div class="chart-controls">
+              <button class="chart-range-btn active" data-range="1h" onclick="setRange('1h',this)">1h</button>
+              <button class="chart-range-btn" data-range="6h" onclick="setRange('6h',this)">6h</button>
+              <button class="chart-range-btn" data-range="24h" onclick="setRange('24h',this)">24h</button>
+              <button class="chart-range-btn" data-range="7d" onclick="setRange('7d',this)">7d</button>
+            </div>
+            <div class="chart-container" id="chartContainer">
+              <canvas id="historyChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2/Global Resize Handle -->
+      <div class="resize-handle-h" id="rowResizeHandle2"></div>
 
       <!-- Global History (all topics) -->
       <div class="panel panel-global">
@@ -1104,6 +1237,7 @@ body::after {
         </div>
       </div>
     </div>
+   </div><!-- /panels-area -->
 
     <!-- Status Bar -->
     <div class="status-bar">
@@ -1330,6 +1464,11 @@ let feedBucket = { ts: 0, totalSize: 0, count: 0 };
 // Alert chart: per-10-second buckets of { ts, warnings, criticals }
 const alertTimeseries = [];
 let alertBucket = { ts: 0, warnings: 0, criticals: 0 };
+
+// Chart mode state: 'live' or '1h'|'6h'|'24h'|'7d'
+let feedChartMode = 'live';
+let feedHistoryData = {}; // { topic: [ { timestamp, avg_bytes, ... } ] } for historical mode
+let alertChartMode = 'live';
 
 /* ── Theme ── */
 function setTheme(theme) {
@@ -2002,7 +2141,77 @@ setTimeout(() => {
   if (alertChartRef) alertChartRef.canvas._renderFn = renderAlertChart;
 }, 0);
 
-/* ── Feed Mini-Chart: dual-axis line (avg size + msg/s) ── */
+/* ── Chart Mode Switching ── */
+function setFeedChartMode(mode, btn) {
+  feedChartMode = mode;
+  document.querySelectorAll('#feedChartRange .mini-range-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  const legend = document.getElementById('feedChartLegend');
+  if (mode === 'live') {
+    legend.innerHTML = '<span class="legend-size">avg size</span><span class="legend-count">msg/s</span>';
+    renderFeedChart();
+  } else {
+    // Fetch history for all topics and render multi-topic chart
+    fetchFeedHistoryAll(mode);
+  }
+}
+
+async function fetchFeedHistoryAll(range) {
+  feedHistoryData = {};
+  const legend = document.getElementById('feedChartLegend');
+  legend.innerHTML = '<span style="color:var(--text-dim)">loading...</span>';
+
+  const topics = state.topics.length > 0 ? state.topics : [];
+  const promises = topics.map(async (topic) => {
+    try {
+      const res = await fetch(`/api/history/${encodeURIComponent(topic)}?range=${range}`);
+      if (res.ok) {
+        feedHistoryData[topic] = await res.json();
+      }
+    } catch (e) { /* ignore */ }
+  });
+  await Promise.all(promises);
+
+  // Build legend with topic colors
+  const topicKeys = Object.keys(feedHistoryData).filter(t => feedHistoryData[t].length > 0);
+  let legendHtml = '';
+  topicKeys.forEach((t, i) => {
+    const color = GLOBAL_CHART_COLORS[i % GLOBAL_CHART_COLORS.length];
+    legendHtml += `<span style="font-size:9px;color:var(--text-dim)"><span style="display:inline-block;width:8px;height:2px;background:${color};margin-right:3px;vertical-align:middle"></span>${t}</span>`;
+  });
+  legend.innerHTML = legendHtml || '<span style="color:var(--text-dim)">no data</span>';
+
+  renderFeedChart();
+}
+
+async function setAlertChartMode(mode, btn) {
+  alertChartMode = mode;
+  document.querySelectorAll('#alertChartRange .mini-range-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  // For historical modes, fetch more alerts from the server to fill the chart
+  if (mode !== 'live') {
+    try {
+      const resp = await fetch('/api/alerts?limit=1000');
+      if (resp.ok) {
+        const alerts = await resp.json();
+        // Merge with existing state.alerts (keep unique by id)
+        const seen = new Set(state.alerts.map(a => a.id));
+        for (const a of alerts) {
+          if (!seen.has(a.id)) {
+            state.alerts.push(a);
+            seen.add(a.id);
+          }
+        }
+        // Sort newest first
+        state.alerts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      }
+    } catch (e) { /* ignore */ }
+  }
+  renderAlertChart();
+}
+
+/* ── Feed Mini-Chart: dual-axis (live) or multi-topic lines (historical) ── */
 function renderFeedChart() {
   const canvas = document.getElementById('feedChart');
   const wrap = document.getElementById('feedChartWrap');
@@ -2010,6 +2219,7 @@ function renderFeedChart() {
   if (!canvas || !wrap) return;
   const ctx = canvas.getContext('2d');
   const rect = wrap.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = rect.width * dpr;
   canvas.height = rect.height * dpr;
@@ -2018,6 +2228,11 @@ function renderFeedChart() {
   const H = rect.height;
   ctx.clearRect(0, 0, W, H);
 
+  if (feedChartMode !== 'live') {
+    return renderFeedChartHistorical(ctx, W, H, canvas, tooltip);
+  }
+
+  // ── Live mode: dual-axis (avg size + msg/s) ──
   const data = feedTimeseries;
   if (data.length < 2) {
     ctx.fillStyle = getCssVar('--text-dim');
@@ -2031,7 +2246,6 @@ function renderFeedChart() {
   const cW = W - pad.left - pad.right;
   const cH = H - pad.top - pad.bottom;
 
-  // Scales
   const sizes = data.map(d => d.avgSize);
   const counts = data.map(d => d.count);
   let sMin = Math.min(...sizes), sMax = Math.max(...sizes);
@@ -2046,7 +2260,6 @@ function renderFeedChart() {
   const yScaleSize = (v) => pad.top + cH - ((v - sMin) / (sMax - sMin)) * cH;
   const yScaleCount = (v) => pad.top + cH - ((v - cMin) / (cMax - cMin)) * cH;
 
-  // Y-axis labels (left = size, right = count)
   ctx.font = '9px ' + getComputedStyle(document.body).fontFamily;
   ctx.fillStyle = getCssVar('--text-dim');
   ctx.textAlign = 'right';
@@ -2056,7 +2269,6 @@ function renderFeedChart() {
   ctx.fillText(Math.round(cMax), W - pad.right + 4, pad.top + 6);
   ctx.fillText('0', W - pad.right + 4, pad.top + cH);
 
-  // X-axis time labels
   ctx.textAlign = 'center';
   ctx.fillStyle = getCssVar('--text-dim');
   const xLabels = Math.min(4, data.length);
@@ -2066,7 +2278,6 @@ function renderFeedChart() {
     ctx.fillText(`${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`, xScale(idx), H - 2);
   }
 
-  // Grid
   ctx.strokeStyle = getCssVar('--border');
   ctx.lineWidth = 0.3;
   for (let i = 0; i <= 3; i++) {
@@ -2074,7 +2285,6 @@ function renderFeedChart() {
     ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
   }
 
-  // Area fill for size
   const cyanColor = getCssVar('--cyan');
   ctx.beginPath();
   ctx.moveTo(xScale(0), yScaleSize(sizes[0]));
@@ -2085,7 +2295,6 @@ function renderFeedChart() {
   ctx.fillStyle = cyanColor.replace(')', ', 0.06)').replace('rgb', 'rgba');
   ctx.fill();
 
-  // Size line (cyan)
   ctx.beginPath();
   ctx.moveTo(xScale(0), yScaleSize(sizes[0]));
   for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScaleSize(sizes[i]));
@@ -2093,7 +2302,6 @@ function renderFeedChart() {
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  // Count line (magenta, dashed)
   const magentaColor = getCssVar('--magenta');
   ctx.beginPath();
   ctx.moveTo(xScale(0), yScaleCount(counts[0]));
@@ -2104,33 +2312,139 @@ function renderFeedChart() {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Hover crosshair + tooltip
   if (canvas._hovering && data.length > 1) {
     const mx = canvas._hoverX;
     const idx = Math.round(((mx - pad.left) / cW) * (data.length - 1));
     const ci = Math.max(0, Math.min(data.length - 1, idx));
     const px = xScale(ci);
 
-    // Vertical crosshair
     ctx.strokeStyle = getCssVar('--text-dim');
     ctx.lineWidth = 0.5;
     ctx.setLineDash([2, 2]);
     ctx.beginPath(); ctx.moveTo(px, pad.top); ctx.lineTo(px, pad.top + cH); ctx.stroke();
     ctx.setLineDash([]);
 
-    // Dot on size line
     ctx.fillStyle = cyanColor;
     ctx.beginPath(); ctx.arc(px, yScaleSize(sizes[ci]), 3, 0, Math.PI * 2); ctx.fill();
-    // Dot on count line
     ctx.fillStyle = magentaColor;
     ctx.beginPath(); ctx.arc(px, yScaleCount(counts[ci]), 3, 0, Math.PI * 2); ctx.fill();
 
-    // Tooltip
     const d = new Date(data[ci].ts);
     const timeStr = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
     tooltip.innerHTML = `<div style="color:var(--text-muted)">${timeStr}</div><div><span style="color:${cyanColor}">avg:</span> ${formatBytes(data[ci].avgSize)}</div><div><span style="color:${magentaColor}">msg/s:</span> ${data[ci].count}</div>`;
     tooltip.style.display = 'block';
     const tipX = px + 10 > W - 80 ? px - 90 : px + 10;
+    tooltip.style.left = tipX + 'px';
+    tooltip.style.top = '4px';
+  }
+}
+
+/* ── Feed Chart: Historical multi-topic mode ── */
+function renderFeedChartHistorical(ctx, W, H, canvas, tooltip) {
+  const topicKeys = Object.keys(feedHistoryData).filter(t => feedHistoryData[t].length > 1);
+  if (topicKeys.length === 0) {
+    ctx.fillStyle = getCssVar('--text-dim');
+    ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'center';
+    ctx.fillText('no historical data', W / 2, H / 2);
+    return;
+  }
+
+  const pad = { top: 6, right: 12, bottom: 16, left: 45 };
+  const cW = W - pad.left - pad.right;
+  const cH = H - pad.top - pad.bottom;
+
+  // Determine global Y range across all topics
+  let yMin = Infinity, yMax = -Infinity;
+  let maxLen = 0;
+  for (const t of topicKeys) {
+    const arr = feedHistoryData[t];
+    if (arr.length > maxLen) maxLen = arr.length;
+    for (const d of arr) {
+      if (d.avg_bytes < yMin) yMin = d.avg_bytes;
+      if (d.avg_bytes > yMax) yMax = d.avg_bytes;
+    }
+  }
+  if (yMin === yMax) { yMin = 0; yMax = yMax * 2 || 100; }
+  const yPad = (yMax - yMin) * 0.1;
+  yMin = Math.max(0, yMin - yPad); yMax = yMax + yPad;
+
+  const xScale = (i, len) => pad.left + (i / Math.max(len - 1, 1)) * cW;
+  const yScale = (v) => pad.top + cH - ((v - yMin) / (yMax - yMin)) * cH;
+
+  // Grid + Y labels
+  ctx.font = '9px ' + getComputedStyle(document.body).fontFamily;
+  ctx.strokeStyle = getCssVar('--border');
+  ctx.lineWidth = 0.3;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (i / 4) * cH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    const val = yMax - (i / 4) * (yMax - yMin);
+    ctx.fillStyle = getCssVar('--text-dim');
+    ctx.textAlign = 'right';
+    ctx.fillText(formatBytes(val), pad.left - 4, y + 3);
+  }
+
+  // X time labels (use longest topic's data)
+  const refTopic = topicKeys.reduce((a, b) => feedHistoryData[a].length >= feedHistoryData[b].length ? a : b);
+  const refData = feedHistoryData[refTopic];
+  ctx.textAlign = 'center';
+  ctx.fillStyle = getCssVar('--text-dim');
+  const xLabelCount = Math.min(5, refData.length);
+  for (let i = 0; i < xLabelCount; i++) {
+    const idx = Math.floor((i / Math.max(xLabelCount - 1, 1)) * (refData.length - 1));
+    ctx.fillText(formatTime(refData[idx].timestamp), xScale(idx, refData.length), H - 2);
+  }
+
+  // Draw each topic line
+  topicKeys.forEach((topic, ti) => {
+    const data = feedHistoryData[topic];
+    const color = GLOBAL_CHART_COLORS[ti % GLOBAL_CHART_COLORS.length];
+    ctx.beginPath();
+    ctx.moveTo(xScale(0, data.length), yScale(data[0].avg_bytes));
+    for (let i = 1; i < data.length; i++) {
+      ctx.lineTo(xScale(i, data.length), yScale(data[i].avg_bytes));
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  });
+
+  // Hover crosshair with per-topic tooltip
+  if (canvas._hovering && maxLen > 1) {
+    const mx = canvas._hoverX;
+    const ci = Math.round(((mx - pad.left) / cW) * (maxLen - 1));
+    const clampI = Math.max(0, Math.min(maxLen - 1, ci));
+    const px = xScale(clampI, maxLen);
+
+    ctx.strokeStyle = getCssVar('--text-dim');
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(px, pad.top); ctx.lineTo(px, pad.top + cH); ctx.stroke();
+    ctx.setLineDash([]);
+
+    let tooltipHtml = '';
+    // Get timestamp from reference data
+    const refIdx = Math.min(clampI, refData.length - 1);
+    if (refData[refIdx]) {
+      tooltipHtml += `<div style="color:var(--text-muted)">${formatTime(refData[refIdx].timestamp)}</div>`;
+    }
+
+    topicKeys.forEach((topic, ti) => {
+      const data = feedHistoryData[topic];
+      const di = Math.min(clampI, data.length - 1);
+      const color = GLOBAL_CHART_COLORS[ti % GLOBAL_CHART_COLORS.length];
+      if (data[di]) {
+        tooltipHtml += `<div><span style="color:${color}">${topic}:</span> ${formatBytes(data[di].avg_bytes)}</div>`;
+        // Dot
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(xScale(di, data.length), yScale(data[di].avg_bytes), 3, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+
+    tooltip.innerHTML = tooltipHtml;
+    tooltip.style.display = 'block';
+    const tipX = px + 10 > W - 120 ? px - 130 : px + 10;
     tooltip.style.left = tipX + 'px';
     tooltip.style.top = '4px';
   }
@@ -2144,6 +2458,7 @@ function renderAlertChart() {
   if (!canvas || !wrap) return;
   const ctx = canvas.getContext('2d');
   const rect = wrap.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = rect.width * dpr;
   canvas.height = rect.height * dpr;
@@ -2152,7 +2467,44 @@ function renderAlertChart() {
   const H = rect.height;
   ctx.clearRect(0, 0, W, H);
 
-  const data = alertTimeseries;
+  // Determine data source: live timeseries or aggregated from state.alerts
+  let data;
+  if (alertChartMode === 'live') {
+    data = alertTimeseries;
+  } else {
+    // Aggregate state.alerts into buckets for the selected time window
+    const now = Date.now();
+    let cutoff = 0;
+    let bucketMs = 60000; // 1 minute buckets by default
+    if (alertChartMode === '1h') { cutoff = now - 3600000; bucketMs = 60000; }
+    else if (alertChartMode === '6h') { cutoff = now - 21600000; bucketMs = 300000; } // 5 min buckets
+    else { cutoff = 0; bucketMs = 600000; } // 'all': 10 min buckets
+
+    const filtered = state.alerts.filter(a => {
+      const ts = new Date(a.timestamp).getTime();
+      return cutoff === 0 || ts >= cutoff;
+    });
+
+    if (filtered.length === 0) {
+      ctx.fillStyle = getCssVar('--text-dim');
+      ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('no alerts in range', W / 2, H / 2);
+      return;
+    }
+
+    // Group into buckets
+    const bucketMap = {};
+    for (const a of filtered) {
+      const ts = new Date(a.timestamp).getTime();
+      const bk = Math.floor(ts / bucketMs) * bucketMs;
+      if (!bucketMap[bk]) bucketMap[bk] = { ts: bk, warnings: 0, criticals: 0 };
+      if (a.severity === 'critical') bucketMap[bk].criticals++;
+      else bucketMap[bk].warnings++;
+    }
+    data = Object.values(bucketMap).sort((a, b) => a.ts - b.ts);
+  }
+
   if (data.length < 1) {
     ctx.fillStyle = getCssVar('--text-dim');
     ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
@@ -2179,7 +2531,11 @@ function renderAlertChart() {
   for (let i = 0; i < xLabels; i++) {
     const idx = Math.floor((i / Math.max(xLabels - 1, 1)) * (data.length - 1));
     const d = new Date(data[idx].ts);
-    ctx.fillText(`${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`, xPos(idx) + barW / 2, H - 2);
+    if (alertChartMode === 'live') {
+      ctx.fillText(`${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`, xPos(idx) + barW / 2, H - 2);
+    } else {
+      ctx.fillText(`${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`, xPos(idx) + barW / 2, H - 2);
+    }
   }
 
   // Bars
@@ -2644,6 +3000,126 @@ async function init() {
     startDashboard();
   }
 }
+
+/* ── Panel Resize Drag Handlers ── */
+function initResizeHandles() {
+  const sidebar = document.getElementById('topicSidebar');
+  const panelsWrap = document.getElementById('panelsWrap');
+  const panelsArea = document.getElementById('panelsArea');
+
+  // Helper: re-render all charts after resize
+  function refreshCharts() {
+    requestAnimationFrame(() => {
+      if (state.historyData.length > 0) renderChart();
+      renderGlobalChart();
+      renderFeedChart();
+      renderAlertChart();
+    });
+  }
+
+  // Sidebar width drag
+  const sidebarHandle = document.getElementById('sidebarResizeHandle');
+  if (sidebarHandle) {
+    let startX, startW;
+    const onMove = (e) => {
+      const dx = e.clientX - startX;
+      const newW = Math.max(180, Math.min(window.innerWidth * 0.5, startW + dx));
+      sidebar.style.width = newW + 'px';
+      refreshCharts();
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('resizing');
+      sidebarHandle.classList.remove('active');
+      refreshCharts();
+    };
+    sidebarHandle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = sidebar.getBoundingClientRect().width;
+      document.body.classList.add('resizing');
+      sidebarHandle.classList.add('active');
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // Row resize handles (between panel rows)
+  function initRowResize(handleId, topRowId, bottomId) {
+    const handle = document.getElementById(handleId);
+    const topRow = document.getElementById(topRowId);
+    if (!handle || !topRow) return;
+    let startY, startH, totalH;
+    const onMove = (e) => {
+      const dy = e.clientY - startY;
+      const newH = Math.max(80, Math.min(totalH - 80, startH + dy));
+      topRow.style.flex = 'none';
+      topRow.style.height = newH + 'px';
+      refreshCharts();
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('resizing-row');
+      handle.classList.remove('active');
+      refreshCharts();
+    };
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startY = e.clientY;
+      startH = topRow.getBoundingClientRect().height;
+      totalH = panelsWrap.getBoundingClientRect().height;
+      document.body.classList.add('resizing-row');
+      handle.classList.add('active');
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+  initRowResize('rowResizeHandle1', 'panelRow1', 'panelRow2');
+  initRowResize('rowResizeHandle2', 'panelRow2', null);
+
+  // Column resize handles (between left/right panels within a row)
+  function initColResize(handleId, rowId) {
+    const handle = document.getElementById(handleId);
+    const row = document.getElementById(rowId);
+    if (!handle || !row) return;
+    let startX, startW, totalW;
+    const onMove = (e) => {
+      const leftPanel = row.querySelector('.panel:first-child');
+      if (!leftPanel) return;
+      const dx = e.clientX - startX;
+      const newW = Math.max(100, Math.min(totalW - 105, startW + dx));
+      leftPanel.style.flex = 'none';
+      leftPanel.style.width = newW + 'px';
+      refreshCharts();
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('resizing');
+      handle.classList.remove('active');
+      refreshCharts();
+    };
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const leftPanel = row.querySelector('.panel:first-child');
+      if (!leftPanel) return;
+      startX = e.clientX;
+      startW = leftPanel.getBoundingClientRect().width;
+      totalW = row.getBoundingClientRect().width;
+      document.body.classList.add('resizing');
+      handle.classList.add('active');
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+  initColResize('colResizeHandle1', 'panelRow1');
+  initColResize('colResizeHandle2', 'panelRow2');
+}
+
+// Initialize resize handles on load
+initResizeHandles();
 
 // Handle window resize for charts
 window.addEventListener('resize', () => {

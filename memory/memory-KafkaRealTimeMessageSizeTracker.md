@@ -112,7 +112,7 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 - **CSS variables**: --bg:#0d1117, --surface:#161b22, --green:#50fa7b, --red:#ff5555, --yellow:#f1fa8c, --cyan:#8be9fd, --magenta:#ff79c6
 - **Font**: JetBrains Mono / Fira Code / monospace
 - **Effects**: scanline overlay, CRT text glow (text-shadow), blinking cursor
-- **Layout**: Vertical sidebar (280px left) with expandable topic cards + 5-panel grid (live_feed | stats, alerts | history, global_history spanning bottom)
+- **Layout**: Resizable panels — vertical sidebar (default 280px, drag-to-resize) + 2 rows of 2 panels + global panel. All dividers (sidebar/columns/rows) are draggable via `.resize-handle-v`/`.resize-handle-h` with cyan highlight on hover. Structure: `.panels-area` (flex-row) > sidebar + resize-handle + `.panels-wrap` (flex-column) > `.panel-row` containers with column resize handles between left/right panels
 - **Topic selection**: Startup picker overlay, localStorage persistence for selected topics
 - **Priority display**: Topics sorted by critical->warning->healthy, `.priority-alert` CSS with pulse-red animation, red border for threshold-crossing topics
 - **Enhanced alerts**: Time window filter (5m/15m/1h/all), shows all topics
@@ -121,8 +121,8 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 - **History Browser**: Full-screen overlay with 3 tabs (messages browse + global snapshot + persisted data), message detail sidebar, pagination
 - **Historical play presets**: `?preset=beginning|1h|1d|latest` param for quick browsing
 - **Chart**: Lightweight Canvas-based line chart (no external lib), auto-scaling, cyan line + fill
-- **Live feed mini-chart**: Dual-axis timeseries (avg size cyan line + msg/s magenta dashed line), per-second rolling buffer (120 pts), crosshair hover with tooltip
-- **Alerts mini-chart**: Stacked bar chart (warnings yellow + criticals red), per-10-second buckets, hover with tooltip
+- **Live feed mini-chart**: Dual-axis timeseries (avg size cyan line + msg/s magenta dashed line), per-second rolling buffer (120 pts), crosshair hover with tooltip. Switchable modes: live | 1h | 6h | 24h | 7d — historical mode shows multi-topic colored lines from `/api/history/{topic}?range=...`
+- **Alerts mini-chart**: Stacked bar chart (warnings yellow + criticals red), per-10-second buckets, hover with tooltip. Switchable modes: live | 1h | 6h | all — historical mode aggregates `state.alerts` into time buckets from `/api/alerts?limit=1000`
 - **WebSocket**: auto-reconnect with exponential backoff
 
 ## MongoDB Persistence

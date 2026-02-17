@@ -22,10 +22,10 @@
 - `docker compose -f docker-compose.full.yml up -d` runs Kafka (KRaft) + App + seed producer + MongoDB 7
 - Dev server: `cargo run -- --brokers localhost:9092 --port 3000`
 - Dashboard at http://localhost:3000
-- **65 tests**: config(2) + models(18) + stats(13) + alerts(11) + storage(11) + handlers(1) + browser(5) + mongo(4)
+- **70 tests**: config(2) + models(20) + stats(13) + alerts(14) + storage(11) + handlers(1) + browser(5) + mongo(4)
 - **3 themes**: Terminal/Chalk (default), Tokyo Night, Dracula — theme switcher + localStorage
-- Features: real-time size tracking, oversized message alerts with payload download, 7-day history, historical message browser (by offset/timestamp/preset), global dashboard snapshot (time-travel), topic selection picker, broker discovery, cluster insights (lag/throughput/recommendations), MongoDB persistence for oversized messages and alerts, persisted data browser
-- Layout: vertical sidebar (280px) + 5-panel grid, priority-sorted topic cards with pulse animations
+- Features: real-time size tracking, oversized message alerts with payload download, 7-day history, historical message browser (by offset/timestamp/preset), global dashboard snapshot (time-travel), topic selection picker, broker discovery, cluster insights (lag/throughput/recommendations), MongoDB persistence for oversized messages and alerts, persisted data browser, runtime-mutable alert thresholds (global defaults + per-topic), mini timeseries charts with switchable time ranges (live/1h/6h/24h/7d)
+- Layout: resizable panels — drag-to-resize sidebar + panel rows/columns, priority-sorted topic cards with pulse animations
 
 ## Memory & Plan File Convention
 - Memory files: `memory-ProjectName.md` — live in `.claude/projects/.../memory/` AND copied into each project's git repo at `memory/`
