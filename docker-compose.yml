@@ -1,0 +1,14 @@
+services:
+  tracker:
+    build: .
+    container_name: kafka-size-tracker
+    ports:
+      - "3000:3000"
+    environment:
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-localhost:9092}
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "3000"
+      RUST_LOG: info
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

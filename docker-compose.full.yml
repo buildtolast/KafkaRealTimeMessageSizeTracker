@@ -1,0 +1,64 @@
+services:
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: kafka-size-tracker-kafka
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: "kafka-size-tracker-cluster"
+    healthcheck:
+      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - tracker-net
+
+  tracker:
+    build: .
+    container_name: kafka-size-tracker
+    ports:
+      - "3000:3000"
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "3000"
+      RUST_LOG: info
+      ALERT_THRESHOLD_BYTES: "1048576"
+      CRITICAL_THRESHOLD_BYTES: "10485760"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - tracker-net
+    restart: unless-stopped
+
+  seed-producer:
+    image: apache/kafka:3.7.0
+    container_name: kafka-size-tracker-seed
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./scripts/seed-sizes.sh:/scripts/seed-sizes.sh
+    entrypoint: ["/bin/bash", "/scripts/seed-sizes.sh"]
+    environment:
+      KAFKA_BROKER: kafka:9092
+    networks:
+      - tracker-net
+
+networks:
+  tracker-net:
+    driver: bridge
