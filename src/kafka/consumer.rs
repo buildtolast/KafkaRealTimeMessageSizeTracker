@@ -1,4 +1,5 @@
 use crate::models::MessageSizeEvent;
+use crate::tracker::alerts::AlertEngine;
 use chrono::{DateTime, Utc};
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::{ClientConfig, Message};
@@ -7,14 +8,15 @@ use tokio::sync::broadcast;
 
 /// Run a consumer that tracks message sizes for a single topic.
 /// Extracts only payload length (never materializes message body into String).
-/// When `capture_threshold` is set and payload_size >= threshold, captures the raw bytes.
+/// Reads the current capture threshold from AlertEngine on each message, so
+/// threshold changes via the API take effect immediately without restarting consumers.
 /// Sends MessageSizeEvent through the broadcast channel.
 pub async fn run_size_tracking_consumer(
     brokers: String,
     topic: String,
     group_id: String,
     tx: broadcast::Sender<MessageSizeEvent>,
-    capture_threshold: usize,
+    alert_engine: AlertEngine,
 ) {
     let consumer: StreamConsumer = match ClientConfig::new()
         .set("bootstrap.servers", &brokers)
@@ -42,6 +44,9 @@ pub async fn run_size_tracking_consumer(
             Ok(msg) => {
                 let payload_size = msg.payload().map_or(0, |p| p.len());
                 let key_size = msg.key().map(|k| k.len());
+
+                // Read the current capture threshold dynamically from AlertEngine
+                let capture_threshold = alert_engine.get_capture_threshold(&topic).await;
 
                 // Capture raw bytes only for oversized messages
                 let (captured_payload, captured_key) = if payload_size >= capture_threshold {

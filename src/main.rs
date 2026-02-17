@@ -74,13 +74,13 @@ impl TopicManager {
         let alerts = self.alert_engine.clone();
         let ws_tx = self.ws_broadcast.clone();
         let event_tx = tx.clone();
-        let capture_threshold = self.alert_engine.default_warning;
+        let consumer_alerts = self.alert_engine.clone();
         let mongo = self.mongo_store.clone();
 
         tokio::spawn(async move {
             let mut event_rx = event_tx.subscribe();
 
-            // Spawn the actual Kafka consumer
+            // Spawn the actual Kafka consumer (reads threshold dynamically from AlertEngine)
             let consumer_topic = topic_owned.clone();
             tokio::spawn(async move {
                 crate::kafka::consumer::run_size_tracking_consumer(
@@ -88,7 +88,7 @@ impl TopicManager {
                     consumer_topic,
                     group,
                     event_tx,
-                    capture_threshold,
+                    consumer_alerts,
                 )
                 .await;
             });
@@ -379,6 +379,14 @@ async fn main() -> std::io::Result<()> {
             .route(
                 "/api/alerts/config",
                 web::post().to(handlers::alerts::set_alert_config),
+            )
+            .route(
+                "/api/alerts/defaults",
+                web::get().to(handlers::alerts::get_alert_defaults),
+            )
+            .route(
+                "/api/alerts/defaults",
+                web::post().to(handlers::alerts::set_alert_defaults),
             )
             .route(
                 "/api/history/{topic}",

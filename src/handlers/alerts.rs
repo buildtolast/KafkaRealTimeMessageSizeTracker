@@ -1,4 +1,4 @@
-use crate::models::{AlertConfig, AlertConfigRequest};
+use crate::models::{AlertConfig, AlertConfigRequest, AlertDefaultsRequest, AlertDefaultsResponse};
 use crate::tracker::alerts::AlertEngine;
 use actix_web::{web, HttpResponse};
 
@@ -39,6 +39,39 @@ pub async fn set_alert_config(
 
     alert_engine.set_config(config.clone()).await;
     HttpResponse::Ok().json(config)
+}
+
+/// GET /api/alerts/defaults — get global default thresholds.
+pub async fn get_alert_defaults(alert_engine: web::Data<AlertEngine>) -> HttpResponse {
+    let (warning, critical) = alert_engine.get_defaults().await;
+    HttpResponse::Ok().json(AlertDefaultsResponse {
+        warning_threshold: warning,
+        critical_threshold: critical,
+    })
+}
+
+/// POST /api/alerts/defaults — update global default thresholds at runtime.
+pub async fn set_alert_defaults(
+    body: web::Json<AlertDefaultsRequest>,
+    alert_engine: web::Data<AlertEngine>,
+) -> HttpResponse {
+    let req = body.into_inner();
+    let (current_warning, current_critical) = alert_engine.get_defaults().await;
+
+    let warning = req.warning_threshold.unwrap_or(current_warning);
+    let critical = req.critical_threshold.unwrap_or(current_critical);
+
+    if warning >= critical {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "warning_threshold must be less than critical_threshold"
+        }));
+    }
+
+    alert_engine.set_defaults(warning, critical).await;
+    HttpResponse::Ok().json(AlertDefaultsResponse {
+        warning_threshold: warning,
+        critical_threshold: critical,
+    })
 }
 
 /// GET /api/alerts/download/{id} — download captured oversized message payload.

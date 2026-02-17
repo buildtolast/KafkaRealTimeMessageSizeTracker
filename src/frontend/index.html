@@ -1066,6 +1066,20 @@ body::after {
     <div class="modal-title">
       <span class="prompt">&gt;</span> Alert Configuration
     </div>
+    <div class="modal-section-label" style="color:var(--cyan);margin-bottom:8px;font-size:0.85em;">Global Defaults (all unconfigured topics)</div>
+    <div class="modal-field">
+      <label>Default Warning Threshold (bytes)</label>
+      <input type="number" id="alertDefaultWarning" value="1048576" placeholder="1048576">
+    </div>
+    <div class="modal-field">
+      <label>Default Critical Threshold (bytes)</label>
+      <input type="number" id="alertDefaultCritical" value="10485760" placeholder="10485760">
+    </div>
+    <div class="modal-actions" style="margin-bottom:12px;">
+      <button class="btn btn-primary" onclick="saveAlertDefaults()">save defaults</button>
+    </div>
+    <div style="border-top:1px solid var(--surface);margin:12px 0;"></div>
+    <div class="modal-section-label" style="color:var(--yellow);margin-bottom:8px;font-size:0.85em;">Per-Topic Override</div>
     <div class="modal-field">
       <label>Topic</label>
       <input type="text" id="alertConfigTopic" placeholder="topic name">
@@ -1080,7 +1094,7 @@ body::after {
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeAlertConfig()">cancel</button>
-      <button class="btn btn-primary" onclick="saveAlertConfig()">save</button>
+      <button class="btn btn-primary" onclick="saveAlertConfig()">save topic config</button>
     </div>
   </div>
 </div>
@@ -1838,16 +1852,56 @@ function renderGlobalChart() {
 }
 
 /* ── Alert Config Modal ── */
-function openAlertConfig() {
+async function openAlertConfig() {
   const modal = document.getElementById('alertConfigModal');
   modal.classList.add('active');
   if (state.selectedTopic) {
     document.getElementById('alertConfigTopic').value = state.selectedTopic;
   }
+  // Load current global defaults from server
+  try {
+    const resp = await fetch('/api/alerts/defaults');
+    if (resp.ok) {
+      const defaults = await resp.json();
+      document.getElementById('alertDefaultWarning').value = defaults.warning_threshold;
+      document.getElementById('alertDefaultCritical').value = defaults.critical_threshold;
+      // Pre-fill per-topic fields with current defaults as placeholders
+      document.getElementById('alertConfigWarning').placeholder = defaults.warning_threshold;
+      document.getElementById('alertConfigCritical').placeholder = defaults.critical_threshold;
+    }
+  } catch (e) { /* ignore */ }
 }
 
 function closeAlertConfig() {
   document.getElementById('alertConfigModal').classList.remove('active');
+}
+
+async function saveAlertDefaults() {
+  const warning = parseInt(document.getElementById('alertDefaultWarning').value);
+  const critical = parseInt(document.getElementById('alertDefaultCritical').value);
+
+  if (!warning || !critical) return;
+  if (warning >= critical) {
+    alert('Warning threshold must be less than critical threshold');
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/alerts/defaults', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        warning_threshold: warning,
+        critical_threshold: critical,
+      }),
+    });
+    if (resp.ok) {
+      const result = await resp.json();
+      // Update placeholders for per-topic section
+      document.getElementById('alertConfigWarning').placeholder = result.warning_threshold;
+      document.getElementById('alertConfigCritical').placeholder = result.critical_threshold;
+    }
+  } catch (e) { /* ignore */ }
 }
 
 async function saveAlertConfig() {

@@ -137,6 +137,20 @@ pub struct AlertConfigRequest {
     pub enabled: Option<bool>,
 }
 
+/// Global alert defaults (runtime-mutable)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlertDefaultsResponse {
+    pub warning_threshold: usize,
+    pub critical_threshold: usize,
+}
+
+/// Request to update global alert defaults at runtime
+#[derive(Debug, Deserialize)]
+pub struct AlertDefaultsRequest {
+    pub warning_threshold: Option<usize>,
+    pub critical_threshold: Option<usize>,
+}
+
 /// WebSocket message types sent to the frontend
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -623,5 +637,24 @@ mod tests {
         let json = serde_json::to_string(&tp).unwrap();
         assert!(json.contains(r#""partitions":6"#));
         assert!(json.contains(r#""messages_per_sec":100.5"#));
+    }
+
+    #[test]
+    fn test_alert_defaults_response_serialization() {
+        let resp = AlertDefaultsResponse {
+            warning_threshold: 1048576,
+            critical_threshold: 10485760,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""warning_threshold":1048576"#));
+        assert!(json.contains(r#""critical_threshold":10485760"#));
+    }
+
+    #[test]
+    fn test_alert_defaults_request_deserialization() {
+        let json = r#"{"warning_threshold":500000}"#;
+        let req: AlertDefaultsRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.warning_threshold, Some(500000));
+        assert!(req.critical_threshold.is_none());
     }
 }
