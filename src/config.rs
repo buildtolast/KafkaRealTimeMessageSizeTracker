@@ -26,6 +26,10 @@ pub struct Args {
     /// Critical alert threshold in bytes (10MB)
     #[arg(long, default_value = "10485760")]
     pub critical_threshold: usize,
+
+    /// MongoDB URI for persistent storage (optional, e.g. mongodb://localhost:27017)
+    #[arg(long)]
+    pub mongo_uri: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +40,7 @@ pub struct AppConfig {
     pub default_warning_threshold: usize,
     pub default_critical_threshold: usize,
     pub consumer_group: String,
+    pub mongo_uri: Option<String>,
 }
 
 impl AppConfig {
@@ -57,6 +62,7 @@ impl AppConfig {
                 .unwrap_or(args.critical_threshold),
             consumer_group: env::var("CONSUMER_GROUP")
                 .unwrap_or_else(|_| "kafka-size-tracker".into()),
+            mongo_uri: env::var("MONGO_URI").ok().or(args.mongo_uri),
         }
     }
 }
@@ -73,6 +79,7 @@ mod tests {
             host: "127.0.0.1".into(),
             threshold: 1048576,
             critical_threshold: 10485760,
+            mongo_uri: None,
         };
         let config = AppConfig::from_args_and_env(args);
         assert_eq!(config.kafka_brokers, "localhost:9092");
@@ -81,6 +88,7 @@ mod tests {
         assert_eq!(config.default_warning_threshold, 1048576);
         assert_eq!(config.default_critical_threshold, 10485760);
         assert_eq!(config.consumer_group, "kafka-size-tracker");
+        assert!(config.mongo_uri.is_none());
     }
 
     #[test]
@@ -91,10 +99,15 @@ mod tests {
             host: "0.0.0.0".into(),
             threshold: 512000,
             critical_threshold: 5000000,
+            mongo_uri: Some("mongodb://localhost:27017".into()),
         };
         let config = AppConfig::from_args_and_env(args);
         assert_eq!(config.kafka_brokers, "kafka:9094");
         assert_eq!(config.server_port, 8080);
         assert_eq!(config.default_warning_threshold, 512000);
+        assert_eq!(
+            config.mongo_uri,
+            Some("mongodb://localhost:27017".into())
+        );
     }
 }

@@ -4,12 +4,14 @@ mod frontend;
 mod handlers;
 mod kafka;
 mod models;
+mod mongo;
 mod storage;
 mod tracker;
 
 use crate::config::{AppConfig, Args};
 use crate::kafka::admin;
 use crate::models::{CapturedMessage, MessageSizeEvent, WsMessage};
+use crate::mongo::{MongoStore, PersistedAlert, PersistedMessage, SharedMongoStore};
 use crate::storage::TimeSeriesStorage;
 use crate::tracker::alerts::AlertEngine;
 use crate::tracker::stats::StatsEngine;
@@ -17,7 +19,7 @@ use actix_cors::Cors;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 use clap::Parser;
 use rdkafka::consumer::BaseConsumer;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 
@@ -29,6 +31,7 @@ pub struct TopicManager {
     stats_engine: StatsEngine,
     alert_engine: AlertEngine,
     ws_broadcast: broadcast::Sender<WsMessage>,
+    mongo_store: SharedMongoStore,
 }
 
 impl TopicManager {
@@ -38,6 +41,7 @@ impl TopicManager {
         stats_engine: StatsEngine,
         alert_engine: AlertEngine,
         ws_broadcast: broadcast::Sender<WsMessage>,
+        mongo_store: SharedMongoStore,
     ) -> Self {
         Self {
             consumers: Arc::new(RwLock::new(HashMap::new())),
@@ -46,6 +50,7 @@ impl TopicManager {
             stats_engine,
             alert_engine,
             ws_broadcast,
+            mongo_store,
         }
     }
 
@@ -70,6 +75,7 @@ impl TopicManager {
         let ws_tx = self.ws_broadcast.clone();
         let event_tx = tx.clone();
         let capture_threshold = self.alert_engine.default_warning;
+        let mongo = self.mongo_store.clone();
 
         tokio::spawn(async move {
             let mut event_rx = event_tx.subscribe();
@@ -110,7 +116,51 @@ impl TopicManager {
                                 };
                                 alert.capture_id = Some(alert.id);
                                 alerts.store_capture(alert.id, captured).await;
+
+                                // Persist oversized message to MongoDB (async, fire-and-forget)
+                                if let Some(store) = mongo.as_ref() {
+                                    use base64::Engine;
+                                    let persisted = PersistedMessage {
+                                        topic: event.topic.clone(),
+                                        partition: event.partition,
+                                        offset: event.offset,
+                                        timestamp: event.timestamp,
+                                        size_bytes: event.size_bytes,
+                                        key: event.captured_key.as_ref().map(|k| {
+                                            base64::engine::general_purpose::STANDARD.encode(k)
+                                        }),
+                                        value: Some(
+                                            base64::engine::general_purpose::STANDARD
+                                                .encode(payload),
+                                        ),
+                                    };
+                                    let store = store.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = store.persist_message(persisted).await {
+                                            log::warn!("Failed to persist oversized message to MongoDB: {}", e);
+                                        }
+                                    });
+                                }
                             }
+
+                            // Persist alert to MongoDB (async, fire-and-forget)
+                            if let Some(store) = mongo.as_ref() {
+                                let persisted = PersistedAlert {
+                                    alert_id: alert.id,
+                                    topic: alert.topic.clone(),
+                                    severity: format!("{:?}", alert.severity).to_lowercase(),
+                                    message_size: alert.message_size,
+                                    threshold: alert.threshold,
+                                    timestamp: alert.timestamp,
+                                };
+                                let store = store.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = store.persist_alert(persisted).await {
+                                        log::warn!("Failed to persist alert to MongoDB: {}", e);
+                                    }
+                                });
+                            }
+
                             let _ = ws_tx.send(WsMessage::Alert(alert));
                         }
 
@@ -189,12 +239,34 @@ async fn main() -> std::io::Result<()> {
     let storage = TimeSeriesStorage::new();
     let (ws_tx, _ws_rx) = broadcast::channel::<WsMessage>(4096);
 
+    // Tracked topics set (for topic selection feature)
+    let tracked_topics: Arc<RwLock<HashSet<String>>> =
+        Arc::new(RwLock::new(HashSet::new()));
+
+    // MongoDB initialization (optional)
+    let mongo_store: SharedMongoStore = if let Some(uri) = &config.mongo_uri {
+        match MongoStore::new(uri).await {
+            Ok(store) => {
+                log::info!("MongoDB persistence enabled");
+                Arc::new(Some(store))
+            }
+            Err(e) => {
+                log::warn!("Failed to connect to MongoDB ({}): {} — persistence disabled", uri, e);
+                Arc::new(None)
+            }
+        }
+    } else {
+        log::info!("MongoDB not configured — persistence disabled");
+        Arc::new(None)
+    };
+
     let topic_manager = Arc::new(TopicManager::new(
         config.kafka_brokers.clone(),
         config.consumer_group.clone(),
         stats_engine.clone(),
         alert_engine.clone(),
         ws_tx.clone(),
+        mongo_store.clone(),
     ));
 
     let brokers_shared = Arc::new(RwLock::new(config.kafka_brokers.clone()));
@@ -230,6 +302,7 @@ async fn main() -> std::io::Result<()> {
     // Background task: auto-discover and subscribe to topics (every 30 seconds)
     let tm_for_discover = topic_manager.clone();
     let admin_for_discover = admin_consumer.clone();
+    let tracked_for_discover = tracked_topics.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
         loop {
@@ -242,7 +315,20 @@ async fn main() -> std::io::Result<()> {
             .await;
 
             if let Ok(Ok(topic_list)) = topics {
-                tm_for_discover.subscribe_all(&topic_list).await;
+                let tracked = tracked_for_discover.read().await;
+                if tracked.is_empty() {
+                    // No selection yet — subscribe to all topics (backward-compatible)
+                    drop(tracked);
+                    tm_for_discover.subscribe_all(&topic_list).await;
+                } else {
+                    // Only subscribe to tracked topics
+                    let filtered: Vec<String> = topic_list
+                        .into_iter()
+                        .filter(|t| tracked.contains(t))
+                        .collect();
+                    drop(tracked);
+                    tm_for_discover.subscribe_all(&filtered).await;
+                }
             }
         }
     });
@@ -265,8 +351,18 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(storage.clone()))
             .app_data(web::Data::new(ws_tx.clone()))
             .app_data(web::Data::new(brokers_shared.clone()))
+            .app_data(web::Data::new(tracked_topics.clone()))
+            .app_data(web::Data::new(mongo_store.clone()))
             .route("/", web::get().to(index))
             .route("/api/topics", web::get().to(handlers::topics::get_topics))
+            .route(
+                "/api/topics/available",
+                web::get().to(handlers::topics::get_available_topics),
+            )
+            .route(
+                "/api/topics/toggle",
+                web::post().to(handlers::topics::toggle_topics),
+            )
             .route(
                 "/api/stats/{topic}",
                 web::get().to(handlers::stats::get_topic_stats),
@@ -291,6 +387,14 @@ async fn main() -> std::io::Result<()> {
             .route("/api/broker", web::get().to(handlers::broker::get_broker))
             .route("/api/broker", web::post().to(handlers::broker::set_broker))
             .route(
+                "/api/broker/discover",
+                web::get().to(handlers::broker::discover_brokers),
+            )
+            .route(
+                "/api/cluster/insights",
+                web::get().to(handlers::broker::get_cluster_insights),
+            )
+            .route(
                 "/api/browse/{topic}",
                 web::get().to(handlers::browse::browse_messages),
             )
@@ -301,6 +405,18 @@ async fn main() -> std::io::Result<()> {
             .route(
                 "/api/snapshot",
                 web::get().to(handlers::browse::get_global_snapshot),
+            )
+            .route(
+                "/api/persisted/messages",
+                web::get().to(handlers::mongo::get_persisted_messages),
+            )
+            .route(
+                "/api/persisted/alerts",
+                web::get().to(handlers::mongo::get_persisted_alerts),
+            )
+            .route(
+                "/api/persisted/status",
+                web::get().to(handlers::mongo::get_persistence_status),
             )
             .route("/ws/live", web::get().to(handlers::ws::ws_handler))
     })

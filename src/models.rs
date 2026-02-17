@@ -224,6 +224,8 @@ pub struct BrowseQueryParams {
     pub timestamp: Option<String>,
     /// Max messages to return (default 50, max 100).
     pub limit: Option<usize>,
+    /// Quick preset: "beginning", "1h", "1d", "latest".
+    pub preset: Option<String>,
 }
 
 /// Per-topic snapshot data point at a historical timestamp.
@@ -248,6 +250,86 @@ pub struct GlobalSnapshotResponse {
 pub struct SnapshotQueryParams {
     /// ISO 8601 timestamp.
     pub timestamp: String,
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//   TOPIC SELECTION TYPES
+// ═══════════════════════════════════════════════════════════════════
+
+/// Request to toggle topics on/off for monitoring.
+#[derive(Debug, Deserialize)]
+pub struct TopicToggleRequest {
+    pub topics: Vec<String>,
+    pub enabled: bool,
+}
+
+/// Response with available and tracked topics.
+#[derive(Debug, Serialize)]
+pub struct AvailableTopicsResponse {
+    pub available: Vec<String>,
+    pub tracked: Vec<String>,
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//   BROKER DISCOVERY + CLUSTER INSIGHTS TYPES
+// ═══════════════════════════════════════════════════════════════════
+
+/// Information about a single Kafka broker.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrokerInfo {
+    pub id: i32,
+    pub host: String,
+    pub port: i32,
+}
+
+/// Broker discovery response.
+#[derive(Debug, Serialize)]
+pub struct BrokerDiscoveryResponse {
+    pub current_brokers: String,
+    pub discovered_brokers: Vec<BrokerInfo>,
+    pub cluster_id: Option<String>,
+}
+
+/// Consumer group lag info for a single topic-partition.
+#[derive(Debug, Clone, Serialize)]
+pub struct PartitionLag {
+    pub topic: String,
+    pub partition: i32,
+    pub current_offset: i64,
+    pub log_end_offset: i64,
+    pub lag: i64,
+}
+
+/// Per-topic throughput summary.
+#[derive(Debug, Clone, Serialize)]
+pub struct TopicThroughput {
+    pub topic: String,
+    pub partitions: i32,
+    pub messages_per_sec: f64,
+    pub bytes_per_sec: f64,
+    pub avg_message_size: f64,
+    pub total_messages: u64,
+    pub total_bytes: u64,
+}
+
+/// Throughput recommendation.
+#[derive(Debug, Clone, Serialize)]
+pub struct ThroughputRecommendation {
+    pub topic: String,
+    pub severity: String,
+    pub message: String,
+}
+
+/// Full cluster insights response.
+#[derive(Debug, Serialize)]
+pub struct ClusterInsightsResponse {
+    pub brokers: Vec<BrokerInfo>,
+    pub cluster_id: Option<String>,
+    pub total_topics: usize,
+    pub total_partitions: i32,
+    pub consumer_lag: Vec<PartitionLag>,
+    pub topic_throughput: Vec<TopicThroughput>,
+    pub recommendations: Vec<ThroughputRecommendation>,
 }
 
 #[cfg(test)]
@@ -411,5 +493,135 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains(r#""encoding":"utf8""#));
         assert!(json.contains(r#""data":"hello world""#));
+    }
+
+    #[test]
+    fn test_topic_toggle_request_deserialization() {
+        let json = r#"{"topics":["orders","users"],"enabled":true}"#;
+        let req: TopicToggleRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.topics, vec!["orders", "users"]);
+        assert!(req.enabled);
+    }
+
+    #[test]
+    fn test_available_topics_response_serialization() {
+        let resp = AvailableTopicsResponse {
+            available: vec!["orders".into(), "users".into(), "logs".into()],
+            tracked: vec!["orders".into()],
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""available""#));
+        assert!(json.contains(r#""tracked""#));
+        assert!(json.contains(r#""orders""#));
+    }
+
+    #[test]
+    fn test_broker_info_serialization() {
+        let info = BrokerInfo {
+            id: 1,
+            host: "kafka-0".into(),
+            port: 9092,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains(r#""id":1"#));
+        assert!(json.contains(r#""host":"kafka-0""#));
+        assert!(json.contains(r#""port":9092"#));
+    }
+
+    #[test]
+    fn test_broker_discovery_response_serialization() {
+        let resp = BrokerDiscoveryResponse {
+            current_brokers: "localhost:9092".into(),
+            discovered_brokers: vec![BrokerInfo {
+                id: 0,
+                host: "localhost".into(),
+                port: 9092,
+            }],
+            cluster_id: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""current_brokers":"localhost:9092""#));
+        assert!(json.contains(r#""discovered_brokers""#));
+    }
+
+    #[test]
+    fn test_cluster_insights_response_serialization() {
+        let resp = ClusterInsightsResponse {
+            brokers: vec![BrokerInfo {
+                id: 0,
+                host: "kafka".into(),
+                port: 9092,
+            }],
+            cluster_id: None,
+            total_topics: 4,
+            total_partitions: 12,
+            consumer_lag: vec![PartitionLag {
+                topic: "orders".into(),
+                partition: 0,
+                current_offset: 100,
+                log_end_offset: 150,
+                lag: 50,
+            }],
+            topic_throughput: vec![TopicThroughput {
+                topic: "orders".into(),
+                partitions: 3,
+                messages_per_sec: 25.0,
+                bytes_per_sec: 50000.0,
+                avg_message_size: 2000.0,
+                total_messages: 10000,
+                total_bytes: 20000000,
+            }],
+            recommendations: vec![ThroughputRecommendation {
+                topic: "orders".into(),
+                severity: "info".into(),
+                message: "Consider compression".into(),
+            }],
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""total_topics":4"#));
+        assert!(json.contains(r#""total_partitions":12"#));
+        assert!(json.contains(r#""lag":50"#));
+        assert!(json.contains(r#""messages_per_sec":25.0"#));
+        assert!(json.contains(r#""Consider compression""#));
+    }
+
+    #[test]
+    fn test_browse_query_params_with_preset() {
+        let json = r#"{"preset":"beginning","limit":50}"#;
+        let params: BrowseQueryParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.preset, Some("beginning".into()));
+        assert_eq!(params.limit, Some(50));
+        assert!(params.offset.is_none());
+        assert!(params.timestamp.is_none());
+    }
+
+    #[test]
+    fn test_partition_lag_serialization() {
+        let lag = PartitionLag {
+            topic: "orders".into(),
+            partition: 2,
+            current_offset: 500,
+            log_end_offset: 550,
+            lag: 50,
+        };
+        let json = serde_json::to_string(&lag).unwrap();
+        assert!(json.contains(r#""partition":2"#));
+        assert!(json.contains(r#""lag":50"#));
+    }
+
+    #[test]
+    fn test_topic_throughput_serialization() {
+        let tp = TopicThroughput {
+            topic: "metrics".into(),
+            partitions: 6,
+            messages_per_sec: 100.5,
+            bytes_per_sec: 200000.0,
+            avg_message_size: 1990.0,
+            total_messages: 50000,
+            total_bytes: 99500000,
+        };
+        let json = serde_json::to_string(&tp).unwrap();
+        assert!(json.contains(r#""partitions":6"#));
+        assert!(json.contains(r#""messages_per_sec":100.5"#));
     }
 }

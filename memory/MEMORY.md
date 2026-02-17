@@ -16,15 +16,16 @@
 
 ## KafkaRealTimeMessageSizeTracker Project
 - Location: ~/GIT/KafkaRealTimeMessageSizeTracker — see [memory-KafkaRealTimeMessageSizeTracker.md](memory-KafkaRealTimeMessageSizeTracker.md) for full details
-- Real-time Kafka message size monitoring dashboard with alerts and analytics
-- Rust backend (actix-web 4 + rdkafka 0.37) + embedded single-file HTML frontend
+- Real-time Kafka message size monitoring dashboard with alerts, analytics, and MongoDB persistence
+- Rust backend (actix-web 4 + rdkafka 0.37 + mongodb 3) + embedded single-file HTML frontend (~2400 lines)
 - Edition 2024, Docker: rust:1.88-bookworm multi-stage build
-- `docker compose -f docker-compose.full.yml up -d` runs Kafka (KRaft) + App + seed producer
+- `docker compose -f docker-compose.full.yml up -d` runs Kafka (KRaft) + App + seed producer + MongoDB 7
 - Dev server: `cargo run -- --brokers localhost:9092 --port 3000`
 - Dashboard at http://localhost:3000
-- **53 tests**: config(2) + models(10) + stats(13) + alerts(11) + storage(11) + handlers(1) + browser(5)
-- **Terminal/chalk theme**: dark bg (#0d1117), ANSI colors, monospace font, scanline overlay
-- Features: real-time size tracking, oversized message alerts with payload download, 7-day history, historical message browser (by offset/timestamp), global dashboard snapshot (time-travel)
+- **65 tests**: config(2) + models(18) + stats(13) + alerts(11) + storage(11) + handlers(1) + browser(5) + mongo(4)
+- **3 themes**: Terminal/Chalk (default), Tokyo Night, Dracula — theme switcher + localStorage
+- Features: real-time size tracking, oversized message alerts with payload download, 7-day history, historical message browser (by offset/timestamp/preset), global dashboard snapshot (time-travel), topic selection picker, broker discovery, cluster insights (lag/throughput/recommendations), MongoDB persistence for oversized messages and alerts, persisted data browser
+- Layout: vertical sidebar (280px) + 5-panel grid, priority-sorted topic cards with pulse animations
 
 ## Memory & Plan File Convention
 - Memory files: `memory-ProjectName.md` — live in `.claude/projects/.../memory/` AND copied into each project's git repo at `memory/`

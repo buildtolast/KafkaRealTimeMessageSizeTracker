@@ -10,6 +10,7 @@ use tokio::sync::RwLock;
 
 /// GET /api/browse/{topic}?partition=0&offset=100&limit=50
 /// GET /api/browse/{topic}?timestamp=2026-02-17T10:00:00Z&limit=50
+/// GET /api/browse/{topic}?preset=beginning|1h|1d|latest&limit=50
 pub async fn browse_messages(
     path: web::Path<String>,
     query: web::Query<BrowseQueryParams>,
@@ -19,6 +20,81 @@ pub async fn browse_messages(
     let params = query.into_inner();
     let limit = params.limit.unwrap_or(50).min(100);
     let brokers = brokers.read().await.clone();
+
+    // Check preset first — these are quick buttons
+    if let Some(ref preset) = params.preset {
+        return match preset.as_str() {
+            "beginning" => {
+                let topic_clone = topic.clone();
+                match web::block(move || {
+                    browser::browse_from_beginning(&brokers, &topic_clone, limit)
+                })
+                .await
+                {
+                    Ok(Ok(response)) => HttpResponse::Ok().json(response),
+                    Ok(Err(e)) => HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": format!("Kafka error: {}", e)
+                    })),
+                    Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": format!("Blocking error: {}", e)
+                    })),
+                }
+            }
+            "1h" => {
+                let timestamp = chrono::Utc::now() - chrono::Duration::hours(1);
+                let topic_clone = topic.clone();
+                match web::block(move || {
+                    browser::browse_by_timestamp(&brokers, &topic_clone, timestamp, limit)
+                })
+                .await
+                {
+                    Ok(Ok(response)) => HttpResponse::Ok().json(response),
+                    Ok(Err(e)) => HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": format!("Kafka error: {}", e)
+                    })),
+                    Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": format!("Blocking error: {}", e)
+                    })),
+                }
+            }
+            "1d" => {
+                let timestamp = chrono::Utc::now() - chrono::Duration::days(1);
+                let topic_clone = topic.clone();
+                match web::block(move || {
+                    browser::browse_by_timestamp(&brokers, &topic_clone, timestamp, limit)
+                })
+                .await
+                {
+                    Ok(Ok(response)) => HttpResponse::Ok().json(response),
+                    Ok(Err(e)) => HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": format!("Kafka error: {}", e)
+                    })),
+                    Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": format!("Blocking error: {}", e)
+                    })),
+                }
+            }
+            "latest" => {
+                let topic_clone = topic.clone();
+                match web::block(move || {
+                    browser::browse_latest(&brokers, &topic_clone, limit)
+                })
+                .await
+                {
+                    Ok(Ok(response)) => HttpResponse::Ok().json(response),
+                    Ok(Err(e)) => HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": format!("Kafka error: {}", e)
+                    })),
+                    Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": format!("Blocking error: {}", e)
+                    })),
+                }
+            }
+            other => HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Unknown preset '{}'. Use: beginning, 1h, 1d, latest", other)
+            })),
+        };
+    }
 
     if let Some(offset) = params.offset {
         // Offset-based browse
@@ -63,7 +139,7 @@ pub async fn browse_messages(
         }
     } else {
         HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Provide either 'offset' (with optional 'partition') or 'timestamp' query parameter"
+            "error": "Provide 'preset', 'offset' (with optional 'partition'), or 'timestamp' query parameter"
         }))
     }
 }

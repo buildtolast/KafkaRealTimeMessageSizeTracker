@@ -210,6 +210,171 @@ pub fn browse_by_timestamp(
     })
 }
 
+/// Browse messages from the very beginning of a topic (all partitions).
+pub fn browse_from_beginning(
+    brokers: &str,
+    topic: &str,
+    limit: usize,
+) -> Result<BrowseMessagesResponse, String> {
+    let limit = limit.min(MAX_MESSAGES);
+    let consumer: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", brokers)
+        .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
+        .set("enable.auto.commit", "false")
+        .create()
+        .map_err(|e| format!("Failed to create consumer: {}", e))?;
+
+    let metadata = consumer
+        .fetch_metadata(Some(topic), Duration::from_secs(10))
+        .map_err(|e| format!("Failed to fetch metadata: {}", e))?;
+    let partition_count = metadata
+        .topics()
+        .iter()
+        .find(|t| t.name() == topic)
+        .map(|t| t.partitions().len() as i32)
+        .unwrap_or(0);
+
+    if partition_count == 0 {
+        return Ok(BrowseMessagesResponse {
+            topic: topic.to_string(),
+            messages: vec![],
+            next_offsets: vec![],
+            has_more: false,
+        });
+    }
+
+    let mut tpl = TopicPartitionList::new();
+    for p in 0..partition_count {
+        tpl.add_partition_offset(topic, p, Offset::Beginning)
+            .map_err(|e| format!("Failed to set beginning offset: {}", e))?;
+    }
+    consumer
+        .assign(&tpl)
+        .map_err(|e| format!("Failed to assign partitions: {}", e))?;
+
+    let mut messages = Vec::new();
+    let mut last_offsets: HashMap<i32, i64> = HashMap::new();
+    let deadline = std::time::Instant::now() + MAX_POLL_DURATION;
+
+    while messages.len() < limit && std::time::Instant::now() < deadline {
+        match consumer.poll(POLL_TIMEOUT) {
+            Some(Ok(msg)) => {
+                last_offsets.insert(msg.partition(), msg.offset());
+                messages.push(convert_message(&msg, topic));
+            }
+            Some(Err(e)) => {
+                log::warn!("Poll error browsing {} from beginning: {}", topic, e);
+                break;
+            }
+            None => break,
+        }
+    }
+
+    messages.sort_by(|a, b| a.offset.cmp(&b.offset).then(a.partition.cmp(&b.partition)));
+
+    let has_more = messages.len() == limit;
+    let next_offsets: Vec<PartitionOffset> = last_offsets
+        .into_iter()
+        .map(|(p, o)| PartitionOffset {
+            partition: p,
+            offset: o + 1,
+        })
+        .collect();
+
+    Ok(BrowseMessagesResponse {
+        topic: topic.to_string(),
+        messages,
+        next_offsets,
+        has_more,
+    })
+}
+
+/// Browse the latest messages from a topic (seeks to near the end of each partition).
+pub fn browse_latest(
+    brokers: &str,
+    topic: &str,
+    limit: usize,
+) -> Result<BrowseMessagesResponse, String> {
+    let limit = limit.min(MAX_MESSAGES);
+    let consumer: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", brokers)
+        .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
+        .set("enable.auto.commit", "false")
+        .create()
+        .map_err(|e| format!("Failed to create consumer: {}", e))?;
+
+    let metadata = consumer
+        .fetch_metadata(Some(topic), Duration::from_secs(10))
+        .map_err(|e| format!("Failed to fetch metadata: {}", e))?;
+    let partition_count = metadata
+        .topics()
+        .iter()
+        .find(|t| t.name() == topic)
+        .map(|t| t.partitions().len() as i32)
+        .unwrap_or(0);
+
+    if partition_count == 0 {
+        return Ok(BrowseMessagesResponse {
+            topic: topic.to_string(),
+            messages: vec![],
+            next_offsets: vec![],
+            has_more: false,
+        });
+    }
+
+    // Get high watermarks and seek to (high - limit_per_partition)
+    let per_partition_limit = (limit / partition_count as usize).max(1);
+    let mut tpl = TopicPartitionList::new();
+    for p in 0..partition_count {
+        let (low, high) = consumer
+            .fetch_watermarks(topic, p, Duration::from_secs(5))
+            .map_err(|e| format!("Failed to fetch watermarks for partition {}: {}", p, e))?;
+        let start = (high - per_partition_limit as i64).max(low);
+        tpl.add_partition_offset(topic, p, Offset::Offset(start))
+            .map_err(|e| format!("Failed to set offset: {}", e))?;
+    }
+
+    consumer
+        .assign(&tpl)
+        .map_err(|e| format!("Failed to assign partitions: {}", e))?;
+
+    let mut messages = Vec::new();
+    let mut last_offsets: HashMap<i32, i64> = HashMap::new();
+    let deadline = std::time::Instant::now() + MAX_POLL_DURATION;
+
+    while messages.len() < limit && std::time::Instant::now() < deadline {
+        match consumer.poll(POLL_TIMEOUT) {
+            Some(Ok(msg)) => {
+                last_offsets.insert(msg.partition(), msg.offset());
+                messages.push(convert_message(&msg, topic));
+            }
+            Some(Err(e)) => {
+                log::warn!("Poll error browsing {} latest: {}", topic, e);
+                break;
+            }
+            None => break,
+        }
+    }
+
+    messages.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then(a.partition.cmp(&b.partition)));
+
+    let has_more = messages.len() == limit;
+    let next_offsets: Vec<PartitionOffset> = last_offsets
+        .into_iter()
+        .map(|(p, o)| PartitionOffset {
+            partition: p,
+            offset: o + 1,
+        })
+        .collect();
+
+    Ok(BrowseMessagesResponse {
+        topic: topic.to_string(),
+        messages,
+        next_offsets,
+        has_more,
+    })
+}
+
 /// Fetch a single full message payload for download.
 pub fn fetch_full_message(
     brokers: &str,

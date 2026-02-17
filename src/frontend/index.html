@@ -36,6 +36,58 @@
   --transition: 0.2s ease;
 }
 
+/* ── Tokyo Night Theme ── */
+[data-theme="tokyo-night"] {
+  --bg: #1a1b26;
+  --surface: #24283b;
+  --surface2: #292e42;
+  --surface3: #2f3549;
+  --border: #3b4261;
+  --border-bright: #545c7e;
+  --text: #c0caf5;
+  --text-dim: #565f89;
+  --text-muted: #3b4261;
+  --green: #9ece6a;
+  --green-dim: #73a942;
+  --red: #f7768e;
+  --red-dim: #c24a5e;
+  --yellow: #e0af68;
+  --yellow-dim: #b88a40;
+  --cyan: #7dcfff;
+  --cyan-dim: #4a9bc7;
+  --magenta: #bb9af7;
+  --magenta-dim: #8a6cc0;
+  --blue: #7aa2f7;
+  --orange: #ff9e64;
+  --white: #c0caf5;
+}
+
+/* ── Dracula Theme ── */
+[data-theme="dracula"] {
+  --bg: #282a36;
+  --surface: #343746;
+  --surface2: #3c3f58;
+  --surface3: #44475a;
+  --border: #6272a4;
+  --border-bright: #7283b5;
+  --text: #f8f8f2;
+  --text-dim: #6272a4;
+  --text-muted: #44475a;
+  --green: #50fa7b;
+  --green-dim: #2ea04f;
+  --red: #ff5555;
+  --red-dim: #a83232;
+  --yellow: #f1fa8c;
+  --yellow-dim: #b59b30;
+  --cyan: #8be9fd;
+  --cyan-dim: #3a8fb7;
+  --magenta: #ff79c6;
+  --magenta-dim: #a855a0;
+  --blue: #bd93f9;
+  --orange: #ffb86c;
+  --white: #f8f8f2;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -118,6 +170,27 @@ body::after {
 
 .header-spacer { flex: 1; }
 
+/* ── Theme Switcher ── */
+.theme-switcher {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.theme-btn {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  transition: all var(--transition);
+  padding: 0;
+}
+.theme-btn:hover { border-color: var(--border-bright); }
+.theme-btn.active { border-color: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+.theme-btn[data-theme="chalk"] { background: #0d1117; }
+.theme-btn[data-theme="tokyo-night"] { background: #1a1b26; }
+.theme-btn[data-theme="dracula"] { background: #282a36; }
+
 .broker-input-group {
   display: flex;
   align-items: center;
@@ -154,51 +227,73 @@ body::after {
 .btn-danger { color: var(--red); border-color: var(--red-dim); }
 .btn-danger:hover { background: rgba(255,85,85,0.1); border-color: var(--red); }
 
-/* ── Main Content ── */
+/* ── Main Content — Sidebar + Panels ── */
 .main-content {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-columns: 280px 1fr;
+  grid-template-rows: 1fr auto;
   overflow: hidden;
 }
 
-/* ── Topic Grid ── */
-.topic-grid-section {
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
-}
-.section-header {
+/* ── Topic Sidebar (Left Panel) ── */
+.topic-sidebar {
+  grid-row: 1;
+  grid-column: 1;
+  border-right: 1px solid var(--border);
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  overflow: hidden;
+}
+.topic-sidebar-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--text-dim);
-}
-.section-header .prompt { font-size: 12px; }
-
-.topic-grid {
   display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
+.topic-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+.topic-list::-webkit-scrollbar { width: 6px; }
+.topic-list::-webkit-scrollbar-track { background: transparent; }
+.topic-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
 .topic-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 10px 14px;
-  min-width: 180px;
+  width: 100%;
+  margin-bottom: 6px;
   cursor: pointer;
-  transition: all var(--transition);
+  transition: all 0.3s ease;
   position: relative;
 }
 .topic-card:hover { border-color: var(--cyan-dim); background: var(--surface2); }
-.topic-card.selected { border-color: var(--cyan); box-shadow: 0 0 8px rgba(139,233,253,0.15); }
+.topic-card.selected {
+  border-color: var(--cyan);
+  box-shadow: 0 0 8px rgba(139,233,253,0.15);
+  padding: 14px;
+}
 .topic-card.alert-warning { border-left: 3px solid var(--yellow); }
 .topic-card.alert-critical { border-left: 3px solid var(--red); }
+.topic-card.priority-alert {
+  border: 2px solid var(--red);
+  box-shadow: 0 0 12px rgba(255,85,85,0.2);
+  animation: pulse-red 2s ease-in-out infinite;
+}
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 12px rgba(255,85,85,0.2); }
+  50% { box-shadow: 0 0 20px rgba(255,85,85,0.4); }
+}
 
 .topic-name { color: var(--cyan); font-weight: 600; font-size: 13px; margin-bottom: 6px; }
 .topic-metric {
@@ -228,6 +323,14 @@ body::after {
 .topic-status.critical { background: rgba(255,85,85,0.15); color: var(--red); }
 .topic-status.unknown { background: rgba(107,122,141,0.15); color: var(--text-dim); }
 
+.topic-card-expanded {
+  display: none;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.topic-card.selected .topic-card-expanded { display: block; }
+
 .no-topics {
   color: var(--text-dim);
   font-style: italic;
@@ -235,11 +338,13 @@ body::after {
   text-align: center;
 }
 
-/* ── Panels ── */
+/* ── Right Panels (3 rows x 2 cols + global spanning) ── */
 .panels {
+  grid-row: 1;
+  grid-column: 2;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
+  grid-template-rows: 1fr 1fr auto;
   gap: 0;
   overflow: hidden;
 }
@@ -252,7 +357,12 @@ body::after {
   overflow: hidden;
 }
 .panel:nth-child(2n) { border-right: none; }
-.panel:nth-child(n+3) { border-bottom: none; }
+.panel.panel-global {
+  grid-column: 1 / 3;
+  border-right: none;
+  border-bottom: none;
+  max-height: 200px;
+}
 
 .panel-header {
   padding: 8px 14px;
@@ -377,6 +487,25 @@ body::after {
 .alert-dl:hover { background: var(--cyan-dim); color: var(--bg); border-color: var(--cyan); }
 .alerts-empty { color: var(--text-dim); text-align: center; padding: 30px 0; font-style: italic; }
 
+.alert-time-filter {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.alert-time-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.alert-time-btn:hover { border-color: var(--cyan-dim); color: var(--text); }
+.alert-time-btn.active { background: var(--cyan-dim); color: var(--bg); border-color: var(--cyan); }
+
 /* ── History Chart ── */
 .chart-controls {
   display: flex;
@@ -401,21 +530,38 @@ body::after {
   position: relative;
   width: 100%;
   height: calc(100% - 36px);
-  min-height: 120px;
+  min-height: 100px;
 }
 .chart-container canvas {
   width: 100%;
   height: 100%;
 }
-.chart-empty {
+
+/* ── Global Chart Legend ── */
+.global-chart-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  padding: 4px 0;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   color: var(--text-dim);
-  text-align: center;
-  padding: 40px 0;
-  font-style: italic;
+}
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* ── Footer / Status Bar ── */
 .status-bar {
+  grid-row: 2;
+  grid-column: 1 / 3;
   background: var(--surface);
   border-top: 1px solid var(--border);
   padding: 4px 20px;
@@ -549,6 +695,25 @@ body::after {
 }
 .browser-field input:focus, .browser-field select:focus { border-color: var(--cyan); }
 
+.browse-presets {
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+  align-items: center;
+}
+.preset-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--orange);
+  font-family: var(--font);
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.preset-btn:hover { border-color: var(--orange); background: rgba(255,184,108,0.1); }
+
 .browser-body { overflow: auto; padding: 12px 20px; flex: 1; }
 
 .msg-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -596,6 +761,159 @@ body::after {
   padding: 8px 20px; display: flex; align-items: center; gap: 12px;
   font-size: 11px; color: var(--text-dim); flex-shrink: 0;
 }
+
+/* ── Topic Picker Overlay ── */
+.topic-picker-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  z-index: 10000;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  transition: opacity 0.3s ease;
+}
+.topic-picker-overlay.hidden { display: none; }
+.topic-picker {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 32px;
+  min-width: 420px;
+  max-width: 540px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+.topic-picker-title {
+  color: var(--cyan);
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.topic-picker-subtitle { color: var(--text-dim); font-size: 12px; margin-bottom: 18px; }
+.topic-checkbox-list {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 40vh;
+}
+.topic-checkbox-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--transition);
+  font-size: 13px;
+}
+.topic-checkbox-item:last-child { border-bottom: none; }
+.topic-checkbox-item:hover { background: var(--surface2); }
+.topic-checkbox-item input[type="checkbox"] {
+  accent-color: var(--cyan);
+  width: 16px; height: 16px;
+  cursor: pointer;
+}
+.topic-checkbox-item .topic-name-label { color: var(--text); }
+.topic-picker-actions {
+  display: flex; gap: 10px; justify-content: flex-end; align-items: center;
+}
+.topic-picker-select-all {
+  color: var(--text-dim); font-size: 11px; cursor: pointer; margin-right: auto;
+}
+.topic-picker-select-all:hover { color: var(--cyan); }
+.topic-picker-loading {
+  color: var(--text-dim); text-align: center; padding: 24px; font-size: 12px;
+}
+
+/* ── Discover Popover ── */
+.discover-popover {
+  position: absolute; top: 100%; right: 0; margin-top: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-width: 260px;
+  z-index: 200;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  display: none;
+}
+.discover-popover.active { display: block; }
+.discover-broker {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.discover-broker:last-child { border-bottom: none; }
+.discover-broker-id { color: var(--text-muted); font-size: 10px; min-width: 30px; }
+.discover-broker-addr { color: var(--cyan); cursor: pointer; }
+.discover-broker-addr:hover { text-decoration: underline; }
+.discover-section-title { color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+
+/* ── Cluster Insights Overlay ── */
+.insights-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  z-index: 9000;
+  display: none; flex-direction: column;
+}
+.insights-overlay.active { display: flex; }
+.insights-header {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 10px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.insights-header .title { color: var(--cyan); font-weight: 600; font-size: 14px; }
+.insights-body {
+  flex: 1; overflow-y: auto; padding: 20px;
+}
+.insights-section {
+  margin-bottom: 24px;
+}
+.insights-section-title {
+  color: var(--text-dim); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--border); padding-bottom: 6px;
+}
+.insights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.insights-stat-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px;
+}
+.insights-stat-label { color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.insights-stat-value { color: var(--cyan); font-size: 22px; font-weight: 700; }
+.insights-stat-sub { color: var(--text-muted); font-size: 10px; margin-top: 2px; }
+
+.insights-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.insights-table th {
+  text-align: left; color: var(--text-dim); font-weight: 400; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 10px;
+  border-bottom: 1px solid var(--border); background: var(--surface);
+}
+.insights-table td { padding: 8px 10px; border-bottom: 1px solid rgba(48,54,61,0.3); }
+.insights-table tr:hover { background: var(--surface); }
+
+.rec-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px; margin-bottom: 8px;
+}
+.rec-card.rec-warning { border-left: 3px solid var(--yellow); }
+.rec-card.rec-critical { border-left: 3px solid var(--red); }
+.rec-card.rec-info { border-left: 3px solid var(--cyan); }
+.rec-topic { color: var(--magenta); font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+.rec-message { color: var(--text); font-size: 12px; line-height: 1.5; }
+.rec-severity { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 6px; }
+.rec-severity.warning { color: var(--yellow); }
+.rec-severity.critical { color: var(--red); }
+.rec-severity.info { color: var(--cyan); }
+
+.lag-bar-container { width: 80px; height: 6px; background: var(--surface3); border-radius: 3px; display: inline-block; vertical-align: middle; }
+.lag-bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.lag-low { background: var(--green); }
+.lag-medium { background: var(--yellow); }
+.lag-high { background: var(--red); }
 </style>
 </head>
 <body>
@@ -612,28 +930,36 @@ body::after {
       <span id="connLabel">disconnected</span>
     </div>
     <div class="header-spacer"></div>
-    <div class="broker-input-group">
+    <div class="theme-switcher">
+      <button class="theme-btn active" data-theme="chalk" onclick="setTheme('chalk')" title="Chalk"></button>
+      <button class="theme-btn" data-theme="tokyo-night" onclick="setTheme('tokyo-night')" title="Tokyo Night"></button>
+      <button class="theme-btn" data-theme="dracula" onclick="setTheme('dracula')" title="Dracula"></button>
+    </div>
+    <div class="broker-input-group" style="position:relative">
       <span class="broker-label">broker://</span>
       <input type="text" class="broker-input" id="brokerInput" value="localhost:9092" placeholder="host:port">
       <button class="btn btn-primary" id="brokerBtn" onclick="updateBroker()">connect</button>
+      <button class="btn" style="font-size:10px;padding:3px 8px" onclick="toggleDiscover()">[discover]</button>
+      <div class="discover-popover" id="discoverPopover"></div>
     </div>
     <button class="btn" style="color:var(--magenta);border-color:var(--magenta-dim)" onclick="openBrowser()">[history_browser]</button>
+    <button class="btn" style="color:var(--green);border-color:var(--green-dim)" onclick="openInsights()">[cluster_insights]</button>
   </div>
 
   <!-- Main Content -->
   <div class="main-content">
-    <!-- Topic Grid -->
-    <div class="topic-grid-section">
-      <div class="section-header">
+    <!-- Topic Sidebar (Left) -->
+    <div class="topic-sidebar">
+      <div class="topic-sidebar-header">
         <span class="prompt">&gt;</span> Topics
         <span id="topicCount" style="color:var(--magenta)">(0)</span>
       </div>
-      <div class="topic-grid" id="topicGrid">
+      <div class="topic-list" id="topicList">
         <div class="no-topics">waiting for topics...</div>
       </div>
     </div>
 
-    <!-- 4-Panel Layout -->
+    <!-- Right Panels -->
     <div class="panels">
       <!-- Live Feed -->
       <div class="panel">
@@ -660,15 +986,20 @@ body::after {
         <div class="panel-header">
           <span class="prompt">&gt;</span> alerts
           <span class="count" id="alertCount">(0)</span>
-          <div style="flex:1"></div>
-          <button class="btn" style="font-size:10px;padding:2px 8px;" onclick="openAlertConfig()">config</button>
+          <div class="alert-time-filter">
+            <button class="alert-time-btn" data-window="5" onclick="setAlertWindow(5,this)">5m</button>
+            <button class="alert-time-btn" data-window="15" onclick="setAlertWindow(15,this)">15m</button>
+            <button class="alert-time-btn" data-window="60" onclick="setAlertWindow(60,this)">1h</button>
+            <button class="alert-time-btn active" data-window="0" onclick="setAlertWindow(0,this)">all</button>
+          </div>
+          <button class="btn" style="font-size:10px;padding:2px 8px;margin-left:4px" onclick="openAlertConfig()">config</button>
         </div>
         <div class="panel-body" id="alertsPanel">
           <div class="alerts-empty">no alerts</div>
         </div>
       </div>
 
-      <!-- History Chart -->
+      <!-- History Chart (selected topic) -->
       <div class="panel">
         <div class="panel-header">
           <span class="prompt">&gt;</span> history
@@ -683,6 +1014,25 @@ body::after {
           </div>
           <div class="chart-container" id="chartContainer">
             <canvas id="historyChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Global History (all topics) -->
+      <div class="panel panel-global">
+        <div class="panel-header">
+          <span class="prompt">&gt;</span> global_history
+          <div class="chart-controls" style="margin-left:12px;margin-bottom:0">
+            <button class="chart-range-btn active" data-range="1h" onclick="setGlobalRange('1h',this)">1h</button>
+            <button class="chart-range-btn" data-range="6h" onclick="setGlobalRange('6h',this)">6h</button>
+            <button class="chart-range-btn" data-range="24h" onclick="setGlobalRange('24h',this)">24h</button>
+            <button class="chart-range-btn" data-range="7d" onclick="setGlobalRange('7d',this)">7d</button>
+          </div>
+        </div>
+        <div class="panel-body" id="globalHistoryPanel" style="padding:4px 14px">
+          <div id="globalChartLegend" class="global-chart-legend"></div>
+          <div class="chart-container" id="globalChartContainer" style="height:calc(100% - 24px);min-height:80px">
+            <canvas id="globalHistoryChart"></canvas>
           </div>
         </div>
       </div>
@@ -743,9 +1093,30 @@ body::after {
     <div class="browser-tabs">
       <button class="browser-tab active" onclick="switchBrowserTab('messages',this)">messages</button>
       <button class="browser-tab" onclick="switchBrowserTab('snapshot',this)">global_snapshot</button>
+      <button class="browser-tab" onclick="switchBrowserTab('persisted',this)">persisted</button>
     </div>
     <div style="flex:1"></div>
     <button class="btn" onclick="closeBrowser()" style="font-size:11px">[close]</button>
+  </div>
+
+  <!-- Persisted Tab Controls -->
+  <div class="browser-controls" id="persistedControls" style="display:none">
+    <div class="browser-field">
+      <label>Type</label>
+      <select id="persistedType">
+        <option value="messages">oversized messages</option>
+        <option value="alerts">alerts</option>
+      </select>
+    </div>
+    <div class="browser-field">
+      <label>Topic</label>
+      <input type="text" id="persistedTopic" placeholder="(all topics)" style="width:140px">
+    </div>
+    <div class="browser-field">
+      <label>Limit</label>
+      <input type="number" id="persistedLimit" value="100" min="1" max="1000" style="width:70px">
+    </div>
+    <button class="btn btn-primary" onclick="fetchPersisted()">query</button>
   </div>
 
   <!-- Messages Tab Controls -->
@@ -778,6 +1149,13 @@ body::after {
       <input type="number" id="browseLimit" value="50" min="1" max="100" style="width:60px">
     </div>
     <button class="btn btn-primary" onclick="executeBrowse()">fetch</button>
+    <div class="browse-presets">
+      <span style="color:var(--text-dim);font-size:10px">quick:</span>
+      <button class="preset-btn" onclick="browsePreset('beginning')">[beginning]</button>
+      <button class="preset-btn" onclick="browsePreset('1h')">[1h ago]</button>
+      <button class="preset-btn" onclick="browsePreset('1d')">[1d ago]</button>
+      <button class="preset-btn" onclick="browsePreset('latest')">[latest]</button>
+    </div>
   </div>
 
   <!-- Snapshot Tab Controls -->
@@ -807,6 +1185,36 @@ body::after {
   </div>
 </div>
 
+<!-- Topic Picker Overlay (shown on startup) -->
+<div class="topic-picker-overlay" id="topicPickerOverlay">
+  <div class="topic-picker">
+    <div class="topic-picker-title">&gt; Select Topics to Monitor</div>
+    <div class="topic-picker-subtitle">Choose which Kafka topics to track. You can toggle them later from the sidebar.</div>
+    <div class="topic-checkbox-list" id="topicCheckboxList">
+      <div class="topic-picker-loading">loading topics...</div>
+    </div>
+    <div class="topic-picker-actions">
+      <span class="topic-picker-select-all" onclick="toggleAllTopics()">[select all]</span>
+      <button class="btn" onclick="skipTopicPicker()">skip (monitor all)</button>
+      <button class="btn btn-primary" onclick="confirmTopicSelection()">monitor selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cluster Insights Overlay -->
+<div class="insights-overlay" id="insightsOverlay">
+  <div class="insights-header">
+    <span class="prompt">&gt;</span>
+    <span class="title">cluster_insights</span>
+    <div style="flex:1"></div>
+    <button class="btn" onclick="refreshInsights()" style="font-size:11px">[refresh]</button>
+    <button class="btn" onclick="closeInsights()" style="font-size:11px">[close]</button>
+  </div>
+  <div class="insights-body" id="insightsBody">
+    <div style="color:var(--text-dim);text-align:center;margin-top:60px">loading cluster insights...</div>
+  </div>
+</div>
+
 <script>
 /* ═══════════════════════════════════════════════════════════════════
    APPLICATION STATE & LOGIC
@@ -823,10 +1231,35 @@ const state = {
   totalEvents: 0,
   historyRange: '1h',
   historyData: [],
+  globalRange: '1h',
+  globalHistoryData: {},
+  alertWindowMinutes: 0,
 };
 
 const MAX_FEED = 200;
 const MAX_ALERTS_DISPLAY = 100;
+const GLOBAL_CHART_COLORS = ['#8be9fd', '#ff79c6', '#50fa7b', '#f1fa8c', '#ffb86c', '#ff5555', '#bd93f9', '#6272a4'];
+
+/* ── Theme ── */
+function setTheme(theme) {
+  if (theme === 'chalk') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+  document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector(`.theme-btn[data-theme="${theme}"]`);
+  if (btn) btn.classList.add('active');
+  localStorage.setItem('sizetracker_theme', theme);
+  // Re-render charts with new theme colors
+  if (state.historyData.length > 0) renderChart();
+  renderGlobalChart();
+}
+
+function loadTheme() {
+  const saved = localStorage.getItem('sizetracker_theme');
+  if (saved && saved !== 'chalk') setTheme(saved);
+}
 
 /* ── Utilities ── */
 function formatBytes(bytes) {
@@ -852,6 +1285,10 @@ function sizeClass(bytes, warnThreshold = 1048576) {
   if (bytes >= warnThreshold) return 'red';
   if (bytes >= warnThreshold * 0.5) return 'yellow';
   return 'green';
+}
+
+function getCssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
 /* ── WebSocket ── */
@@ -941,7 +1378,7 @@ function handleStatsUpdate(stats) {
   document.getElementById('statusTopics').textContent = state.topics.length;
   document.getElementById('topicCount').textContent = `(${state.topics.length})`;
 
-  renderTopicGrid();
+  renderTopicList();
 
   // Update stats panel if this is the selected topic
   if (state.selectedTopic === stats.topic) {
@@ -957,34 +1394,65 @@ function handleAlert(alert) {
   renderAlerts();
 }
 
-/* ── Render: Topic Grid ── */
-function renderTopicGrid() {
-  const grid = document.getElementById('topicGrid');
+/* ── Render: Topic List (Sidebar) ── */
+function getTopicPriority(topic) {
+  const s = state.stats[topic];
+  if (!s) return 3;
+  if (sizeClass(s.max_bytes) === 'red') return 0;
+  if (sizeClass(s.max_bytes) === 'yellow') return 1;
+  return 2;
+}
+
+function renderTopicList() {
+  const list = document.getElementById('topicList');
   if (state.topics.length === 0) {
-    grid.innerHTML = '<div class="no-topics">waiting for topics...</div>';
+    list.innerHTML = '<div class="no-topics">waiting for topics...</div>';
     return;
   }
 
+  // Sort: critical first, then warning, then healthy, then alphabetical
+  const sortedTopics = [...state.topics].sort((a, b) => {
+    const pa = getTopicPriority(a);
+    const pb = getTopicPriority(b);
+    if (pa !== pb) return pa - pb;
+    return a.localeCompare(b);
+  });
+
   let html = '';
-  for (const topic of state.topics) {
+  for (const topic of sortedTopics) {
     const s = state.stats[topic];
     const selected = state.selectedTopic === topic ? ' selected' : '';
     let alertClass = '';
+    let priorityClass = '';
     let statusHtml = '';
 
     if (s) {
       const sc = sizeClass(s.max_bytes);
-      if (sc === 'red') { alertClass = ' alert-critical'; statusHtml = '<span class="topic-status critical">CRIT</span>'; }
-      else if (sc === 'yellow') { alertClass = ' alert-warning'; statusHtml = '<span class="topic-status warning">WARN</span>'; }
-      else { statusHtml = '<span class="topic-status healthy">OK</span>'; }
+      if (sc === 'red') {
+        alertClass = ' alert-critical';
+        priorityClass = ' priority-alert';
+        statusHtml = '<span class="topic-status critical">CRIT</span>';
+      } else if (sc === 'yellow') {
+        alertClass = ' alert-warning';
+        statusHtml = '<span class="topic-status warning">WARN</span>';
+      } else {
+        statusHtml = '<span class="topic-status healthy">OK</span>';
+      }
 
-      html += `<div class="topic-card${selected}${alertClass}" onclick="selectTopic('${topic}')">
+      html += `<div class="topic-card${selected}${alertClass}${priorityClass}" onclick="selectTopic('${topic}')">
         ${statusHtml}
         <div class="topic-name">${topic}</div>
         <div class="topic-metric"><span>msg/s</span><span class="value">${formatRate(s.messages_per_sec)}</span></div>
         <div class="topic-metric"><span>avg</span><span class="value ${sizeClass(s.avg_bytes)}">${formatBytes(s.avg_bytes)}</span></div>
         <div class="topic-metric"><span>max</span><span class="value ${sizeClass(s.max_bytes)}">${formatBytes(s.max_bytes)}</span></div>
         <div class="topic-metric"><span>count</span><span class="value">${s.message_count.toLocaleString()}</span></div>
+        <div class="topic-card-expanded">
+          <div class="topic-metric"><span>p50</span><span class="value">${formatBytes(s.p50)}</span></div>
+          <div class="topic-metric"><span>p95</span><span class="value">${formatBytes(s.p95)}</span></div>
+          <div class="topic-metric"><span>p99</span><span class="value">${formatBytes(s.p99)}</span></div>
+          <div class="topic-metric"><span>total</span><span class="value">${formatBytes(s.total_bytes)}</span></div>
+          <div class="topic-metric"><span>bytes/s</span><span class="value">${formatBytes(s.bytes_per_sec)}/s</span></div>
+        </div>
       </div>`;
     } else {
       html += `<div class="topic-card${selected}" onclick="selectTopic('${topic}')">
@@ -994,7 +1462,7 @@ function renderTopicGrid() {
       </div>`;
     }
   }
-  grid.innerHTML = html;
+  list.innerHTML = html;
 }
 
 /* ── Render: Live Feed ── */
@@ -1003,7 +1471,6 @@ function renderLiveFeed() {
   const count = document.getElementById('feedCount');
   count.textContent = `(${state.liveFeed.length})`;
 
-  // Only render visible entries (performance)
   const visible = state.liveFeed.slice(0, 100);
   let html = '';
   for (const e of visible) {
@@ -1063,17 +1530,32 @@ function renderStatsPanel() {
   `;
 }
 
-/* ── Render: Alerts ── */
+/* ── Render: Alerts (all topics, with time window) ── */
+let alertWindowMinutes = 0;
+
+function setAlertWindow(minutes, btn) {
+  alertWindowMinutes = minutes;
+  document.querySelectorAll('.alert-time-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderAlerts();
+}
+
 function renderAlerts() {
   const panel = document.getElementById('alertsPanel');
 
-  if (state.alerts.length === 0) {
-    panel.innerHTML = '<div class="alerts-empty">no alerts</div>';
+  let filtered = state.alerts;
+  if (alertWindowMinutes > 0) {
+    const cutoff = Date.now() - alertWindowMinutes * 60 * 1000;
+    filtered = state.alerts.filter(a => new Date(a.timestamp).getTime() >= cutoff);
+  }
+
+  if (filtered.length === 0) {
+    panel.innerHTML = '<div class="alerts-empty">no alerts' + (alertWindowMinutes > 0 ? ` in last ${alertWindowMinutes}m` : '') + '</div>';
     return;
   }
 
   let html = '';
-  for (const a of state.alerts.slice(0, 50)) {
+  for (const a of filtered.slice(0, 50)) {
     const cls = a.severity === 'critical' ? 'critical' : 'warning';
     const icon = a.severity === 'critical' ? '!!' : '!';
     const dlBtn = a.capture_id
@@ -1096,10 +1578,16 @@ function renderAlerts() {
 /* ── Topic Selection ── */
 function selectTopic(topic) {
   state.selectedTopic = topic;
-  renderTopicGrid();
+  renderTopicList();
   renderStatsPanel();
   document.getElementById('historyTopicLabel').textContent = `[${topic}]`;
   fetchHistory();
+
+  // Scroll selected card into view
+  setTimeout(() => {
+    const card = document.querySelector('.topic-card.selected');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, 50);
 }
 
 /* ── Broker Update ── */
@@ -1115,14 +1603,14 @@ async function updateBroker() {
       body: JSON.stringify({ brokers }),
     });
     if (res.ok) {
-      // Reconnect WebSocket
       if (state.ws) state.ws.close();
       state.topics = [];
       state.stats = {};
       state.liveFeed = [];
       state.alerts = [];
       state.totalEvents = 0;
-      renderTopicGrid();
+      state.globalHistoryData = {};
+      renderTopicList();
       renderLiveFeed();
       renderAlerts();
       connectWebSocket();
@@ -1130,10 +1618,10 @@ async function updateBroker() {
   } catch (e) { /* ignore */ }
 }
 
-/* ── History Chart ── */
+/* ── History Chart (selected topic) ── */
 function setRange(range, btn) {
   state.historyRange = range;
-  document.querySelectorAll('.chart-range-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#historyPanel .chart-range-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   fetchHistory();
 }
@@ -1154,7 +1642,6 @@ function renderChart() {
   const container = document.getElementById('chartContainer');
   const ctx = canvas.getContext('2d');
 
-  // Set canvas resolution
   const rect = container.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   canvas.width = rect.width * dpr;
@@ -1163,11 +1650,10 @@ function renderChart() {
   const W = rect.width;
   const H = rect.height;
 
-  // Clear
   ctx.clearRect(0, 0, W, H);
 
   if (state.historyData.length < 2) {
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim();
+    ctx.fillStyle = getCssVar('--text-dim');
     ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
     ctx.textAlign = 'center';
     ctx.fillText('not enough data points', W / 2, H / 2);
@@ -1179,7 +1665,6 @@ function renderChart() {
   const chartW = W - pad.left - pad.right;
   const chartH = H - pad.top - pad.bottom;
 
-  // Y range (avg_bytes)
   const values = data.map(d => d.avg_bytes);
   let yMin = Math.min(...values);
   let yMax = Math.max(...values);
@@ -1188,24 +1673,17 @@ function renderChart() {
   yMin = Math.max(0, yMin - yPad);
   yMax = yMax + yPad;
 
-  // Helpers
   const xScale = (i) => pad.left + (i / (data.length - 1)) * chartW;
   const yScale = (v) => pad.top + chartH - ((v - yMin) / (yMax - yMin)) * chartH;
 
-  // Grid lines
-  ctx.strokeStyle = '#30363d';
+  // Grid
+  ctx.strokeStyle = getCssVar('--border');
   ctx.lineWidth = 0.5;
-  const gridLines = 5;
-  for (let i = 0; i <= gridLines; i++) {
-    const y = pad.top + (i / gridLines) * chartH;
-    ctx.beginPath();
-    ctx.moveTo(pad.left, y);
-    ctx.lineTo(W - pad.right, y);
-    ctx.stroke();
-
-    // Y labels
-    const val = yMax - (i / gridLines) * (yMax - yMin);
-    ctx.fillStyle = '#6b7a8d';
+  for (let i = 0; i <= 5; i++) {
+    const y = pad.top + (i / 5) * chartH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    const val = yMax - (i / 5) * (yMax - yMin);
+    ctx.fillStyle = getCssVar('--text-dim');
     ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
     ctx.textAlign = 'right';
     ctx.fillText(formatBytes(val), pad.left - 6, y + 3);
@@ -1216,42 +1694,147 @@ function renderChart() {
   const xLabelCount = Math.min(6, data.length);
   for (let i = 0; i < xLabelCount; i++) {
     const idx = Math.floor((i / (xLabelCount - 1)) * (data.length - 1));
-    const x = xScale(idx);
-    ctx.fillStyle = '#6b7a8d';
-    ctx.fillText(formatTime(data[idx].timestamp), x, H - 8);
+    ctx.fillStyle = getCssVar('--text-dim');
+    ctx.fillText(formatTime(data[idx].timestamp), xScale(idx), H - 8);
   }
 
-  // Fill area
+  // Fill
+  const cyanColor = getCssVar('--cyan');
   ctx.beginPath();
   ctx.moveTo(xScale(0), yScale(values[0]));
-  for (let i = 1; i < data.length; i++) {
-    ctx.lineTo(xScale(i), yScale(values[i]));
-  }
+  for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScale(values[i]));
   ctx.lineTo(xScale(data.length - 1), pad.top + chartH);
   ctx.lineTo(xScale(0), pad.top + chartH);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(139, 233, 253, 0.08)';
+  ctx.fillStyle = cyanColor.replace(')', ', 0.08)').replace('rgb', 'rgba');
   ctx.fill();
 
   // Line
   ctx.beginPath();
   ctx.moveTo(xScale(0), yScale(values[0]));
-  for (let i = 1; i < data.length; i++) {
-    ctx.lineTo(xScale(i), yScale(values[i]));
-  }
-  ctx.strokeStyle = '#8be9fd';
+  for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScale(values[i]));
+  ctx.strokeStyle = cyanColor;
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  // Data points
-  ctx.fillStyle = '#8be9fd';
+  // Points
+  ctx.fillStyle = cyanColor;
   if (data.length <= 60) {
     for (let i = 0; i < data.length; i++) {
-      ctx.beginPath();
-      ctx.arc(xScale(i), yScale(values[i]), 2, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(xScale(i), yScale(values[i]), 2, 0, Math.PI * 2); ctx.fill();
     }
   }
+}
+
+/* ── Global History Chart (all topics) ── */
+function setGlobalRange(range, btn) {
+  state.globalRange = range;
+  const panel = document.querySelector('.panel-global .panel-header');
+  panel.querySelectorAll('.chart-range-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  fetchGlobalHistory();
+}
+
+async function fetchGlobalHistory() {
+  if (state.topics.length === 0) return;
+  const promises = state.topics.map(async (topic) => {
+    try {
+      const res = await fetch(`/api/history/${encodeURIComponent(topic)}?range=${state.globalRange}`);
+      if (res.ok) {
+        state.globalHistoryData[topic] = await res.json();
+      }
+    } catch (e) { /* ignore */ }
+  });
+  await Promise.all(promises);
+  renderGlobalChart();
+}
+
+function renderGlobalChart() {
+  const canvas = document.getElementById('globalHistoryChart');
+  const container = document.getElementById('globalChartContainer');
+  if (!canvas || !container) return;
+  const ctx = canvas.getContext('2d');
+
+  const rect = container.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width;
+  const H = rect.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Collect all topic data
+  const topicEntries = state.topics.filter(t => state.globalHistoryData[t] && state.globalHistoryData[t].length >= 2);
+
+  // Render legend
+  const legendEl = document.getElementById('globalChartLegend');
+  let legendHtml = '';
+  topicEntries.forEach((topic, idx) => {
+    const color = GLOBAL_CHART_COLORS[idx % GLOBAL_CHART_COLORS.length];
+    legendHtml += `<div class="legend-item"><span class="legend-dot" style="background:${color}"></span>${topic}</div>`;
+  });
+  if (legendEl) legendEl.innerHTML = legendHtml;
+
+  if (topicEntries.length === 0) {
+    ctx.fillStyle = getCssVar('--text-dim');
+    ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'center';
+    ctx.fillText('waiting for history data...', W / 2, H / 2);
+    return;
+  }
+
+  const pad = { top: 10, right: 15, bottom: 22, left: 55 };
+  const chartW = W - pad.left - pad.right;
+  const chartH = H - pad.top - pad.bottom;
+
+  // Global Y range across all topics
+  let yMin = Infinity, yMax = -Infinity;
+  let maxLen = 0;
+  for (const topic of topicEntries) {
+    const data = state.globalHistoryData[topic];
+    for (const d of data) {
+      if (d.avg_bytes < yMin) yMin = d.avg_bytes;
+      if (d.avg_bytes > yMax) yMax = d.avg_bytes;
+    }
+    if (data.length > maxLen) maxLen = data.length;
+  }
+  if (yMin === yMax) { yMin = 0; yMax = yMax * 2 || 100; }
+  const yPad = (yMax - yMin) * 0.1;
+  yMin = Math.max(0, yMin - yPad);
+  yMax = yMax + yPad;
+
+  const xScale = (i, len) => pad.left + (i / Math.max(1, len - 1)) * chartW;
+  const yScale = (v) => pad.top + chartH - ((v - yMin) / (yMax - yMin)) * chartH;
+
+  // Grid
+  ctx.strokeStyle = getCssVar('--border');
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 3; i++) {
+    const y = pad.top + (i / 3) * chartH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    const val = yMax - (i / 3) * (yMax - yMin);
+    ctx.fillStyle = getCssVar('--text-dim');
+    ctx.font = '9px ' + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'right';
+    ctx.fillText(formatBytes(val), pad.left - 4, y + 3);
+  }
+
+  // Draw each topic line
+  topicEntries.forEach((topic, idx) => {
+    const data = state.globalHistoryData[topic];
+    const color = GLOBAL_CHART_COLORS[idx % GLOBAL_CHART_COLORS.length];
+    ctx.beginPath();
+    ctx.moveTo(xScale(0, data.length), yScale(data[0].avg_bytes));
+    for (let i = 1; i < data.length; i++) {
+      ctx.lineTo(xScale(i, data.length), yScale(data[i].avg_bytes));
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
 }
 
 /* ── Alert Config Modal ── */
@@ -1290,16 +1873,274 @@ async function saveAlertConfig() {
 }
 
 /* ── Initial Load ── */
-async function init() {
-  // Fetch broker
+/* ═══════════════════════════════════════════════════════════════════
+   TOPIC PICKER
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function showTopicPicker() {
+  const overlay = document.getElementById('topicPickerOverlay');
+  overlay.classList.remove('hidden');
+  const list = document.getElementById('topicCheckboxList');
+  list.innerHTML = '<div class="topic-picker-loading">loading topics...</div>';
+
   try {
-    const res = await fetch('/api/broker');
-    if (res.ok) {
-      const data = await res.json();
-      document.getElementById('brokerInput').value = data.brokers;
+    const res = await fetch('/api/topics/available');
+    if (!res.ok) throw new Error('Failed to fetch');
+    const data = await res.json();
+    const available = data.available || [];
+    const tracked = new Set(data.tracked || []);
+
+    if (available.length === 0) {
+      list.innerHTML = '<div class="topic-picker-loading">no topics found — they\'ll appear when Kafka produces messages</div>';
+      return;
     }
+
+    list.innerHTML = '';
+    for (const topic of available) {
+      const item = document.createElement('div');
+      item.className = 'topic-checkbox-item';
+      const checked = tracked.size === 0 || tracked.has(topic) ? 'checked' : '';
+      item.innerHTML = `<input type="checkbox" id="pick_${topic}" value="${escapeHtml(topic)}" ${checked}><label class="topic-name-label" for="pick_${topic}">${escapeHtml(topic)}</label>`;
+      item.onclick = (e) => {
+        if (e.target.tagName !== 'INPUT') {
+          const cb = item.querySelector('input');
+          cb.checked = !cb.checked;
+        }
+      };
+      list.appendChild(item);
+    }
+  } catch (e) {
+    list.innerHTML = '<div class="topic-picker-loading">error loading topics — click skip to monitor all</div>';
+  }
+}
+
+function toggleAllTopics() {
+  const checkboxes = document.querySelectorAll('#topicCheckboxList input[type="checkbox"]');
+  const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+  checkboxes.forEach(cb => cb.checked = !allChecked);
+}
+
+async function confirmTopicSelection() {
+  const checkboxes = document.querySelectorAll('#topicCheckboxList input[type="checkbox"]:checked');
+  const selected = Array.from(checkboxes).map(cb => cb.value);
+
+  if (selected.length === 0) {
+    // If none selected, treat as monitor all
+    skipTopicPicker();
+    return;
+  }
+
+  try {
+    await fetch('/api/topics/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topics: selected, enabled: true }),
+    });
+    localStorage.setItem('sizetracker_tracked_topics', JSON.stringify(selected));
   } catch (e) { /* ignore */ }
 
+  document.getElementById('topicPickerOverlay').classList.add('hidden');
+  startDashboard();
+}
+
+function skipTopicPicker() {
+  localStorage.removeItem('sizetracker_tracked_topics');
+  document.getElementById('topicPickerOverlay').classList.add('hidden');
+  startDashboard();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BROKER DISCOVERY
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function toggleDiscover() {
+  const popover = document.getElementById('discoverPopover');
+  if (popover.classList.contains('active')) {
+    popover.classList.remove('active');
+    return;
+  }
+
+  popover.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:8px">discovering...</div>';
+  popover.classList.add('active');
+
+  try {
+    const res = await fetch('/api/broker/discover');
+    if (!res.ok) throw new Error('Discovery failed');
+    const data = await res.json();
+
+    let html = `<div class="discover-section-title">cluster brokers</div>`;
+    if (data.discovered_brokers && data.discovered_brokers.length > 0) {
+      for (const b of data.discovered_brokers) {
+        html += `<div class="discover-broker">
+          <span class="discover-broker-id">#${b.id}</span>
+          <span class="discover-broker-addr" onclick="connectToBroker('${b.host}:${b.port}')">${escapeHtml(b.host)}:${b.port}</span>
+        </div>`;
+      }
+    } else {
+      html += '<div style="color:var(--text-muted);font-size:11px;padding:4px 0">no brokers found</div>';
+    }
+    if (data.current_brokers) {
+      html += `<div style="color:var(--text-muted);font-size:10px;margin-top:8px;border-top:1px solid var(--border);padding-top:6px">current: ${escapeHtml(data.current_brokers)}</div>`;
+    }
+    popover.innerHTML = html;
+  } catch (e) {
+    popover.innerHTML = `<div style="color:var(--red);font-size:11px;padding:8px">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function connectToBroker(addr) {
+  document.getElementById('brokerInput').value = addr;
+  document.getElementById('discoverPopover').classList.remove('active');
+  updateBroker();
+}
+
+// Close discover on click outside
+document.addEventListener('click', (e) => {
+  const popover = document.getElementById('discoverPopover');
+  const group = popover.closest('.broker-input-group');
+  if (popover.classList.contains('active') && !group.contains(e.target)) {
+    popover.classList.remove('active');
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   CLUSTER INSIGHTS
+   ═══════════════════════════════════════════════════════════════════ */
+
+function openInsights() {
+  document.getElementById('insightsOverlay').classList.add('active');
+  fetchInsights();
+}
+
+function closeInsights() {
+  document.getElementById('insightsOverlay').classList.remove('active');
+}
+
+function refreshInsights() {
+  fetchInsights();
+}
+
+async function fetchInsights() {
+  const body = document.getElementById('insightsBody');
+  body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">loading cluster insights...</div>';
+
+  try {
+    const res = await fetch('/api/cluster/insights');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    renderInsights(data);
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderInsights(data) {
+  const body = document.getElementById('insightsBody');
+  let html = '';
+
+  // ── Cluster Overview ──
+  html += '<div class="insights-section">';
+  html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Cluster Overview</div>';
+  html += '<div class="insights-grid">';
+  html += insightCard('Brokers', data.brokers ? data.brokers.length : 0, 'active nodes');
+  html += insightCard('Topics', data.total_topics, 'non-internal');
+  html += insightCard('Partitions', data.total_partitions, 'total across all topics');
+  const totalLag = data.consumer_lag ? data.consumer_lag.reduce((s, l) => s + l.lag, 0) : 0;
+  const lagColor = totalLag > 100000 ? 'var(--red)' : totalLag > 10000 ? 'var(--yellow)' : 'var(--green)';
+  html += `<div class="insights-stat-card">
+    <div class="insights-stat-label">Total Consumer Lag</div>
+    <div class="insights-stat-value" style="color:${lagColor}">${totalLag.toLocaleString()}</div>
+    <div class="insights-stat-sub">messages behind</div>
+  </div>`;
+  html += '</div></div>';
+
+  // ── Broker Details ──
+  if (data.brokers && data.brokers.length > 0) {
+    html += '<div class="insights-section">';
+    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Broker Nodes</div>';
+    html += '<table class="insights-table"><thead><tr><th>ID</th><th>Host</th><th>Port</th></tr></thead><tbody>';
+    for (const b of data.brokers) {
+      html += `<tr><td style="color:var(--magenta)">#${b.id}</td><td style="color:var(--cyan)">${escapeHtml(b.host)}</td><td>${b.port}</td></tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
+
+  // ── Topic Throughput ──
+  if (data.topic_throughput && data.topic_throughput.length > 0) {
+    html += '<div class="insights-section">';
+    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Topic Throughput</div>';
+    html += '<table class="insights-table"><thead><tr><th>Topic</th><th>Partitions</th><th>msg/sec</th><th>bytes/sec</th><th>avg size</th><th>total msgs</th><th>total bytes</th></tr></thead><tbody>';
+    for (const tp of data.topic_throughput) {
+      html += `<tr>
+        <td style="color:var(--cyan)">${escapeHtml(tp.topic)}</td>
+        <td>${tp.partitions}</td>
+        <td style="color:var(--green)">${tp.messages_per_sec.toFixed(1)}</td>
+        <td>${formatBytes(tp.bytes_per_sec)}/s</td>
+        <td>${formatBytes(tp.avg_message_size)}</td>
+        <td>${tp.total_messages.toLocaleString()}</td>
+        <td>${formatBytes(tp.total_bytes)}</td>
+      </tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
+
+  // ── Consumer Lag per Partition ──
+  if (data.consumer_lag && data.consumer_lag.length > 0) {
+    html += '<div class="insights-section">';
+    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Consumer Lag by Partition</div>';
+    html += '<table class="insights-table"><thead><tr><th>Topic</th><th>Partition</th><th>Current Offset</th><th>Log End</th><th>Lag</th><th></th></tr></thead><tbody>';
+    // Sort by lag descending
+    const sorted = [...data.consumer_lag].sort((a, b) => b.lag - a.lag);
+    for (const l of sorted) {
+      const maxLag = Math.max(...data.consumer_lag.map(x => x.lag), 1);
+      const pct = Math.min((l.lag / maxLag) * 100, 100);
+      const barClass = l.lag > 10000 ? 'lag-high' : l.lag > 1000 ? 'lag-medium' : 'lag-low';
+      html += `<tr>
+        <td style="color:var(--cyan)">${escapeHtml(l.topic)}</td>
+        <td>${l.partition}</td>
+        <td style="color:var(--text-dim)">${l.current_offset.toLocaleString()}</td>
+        <td>${l.log_end_offset.toLocaleString()}</td>
+        <td style="color:${l.lag > 10000 ? 'var(--red)' : l.lag > 1000 ? 'var(--yellow)' : 'var(--green)'};font-weight:600">${l.lag.toLocaleString()}</td>
+        <td><div class="lag-bar-container"><div class="lag-bar ${barClass}" style="width:${pct}%"></div></div></td>
+      </tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
+
+  // ── Recommendations ──
+  if (data.recommendations && data.recommendations.length > 0) {
+    html += '<div class="insights-section">';
+    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Throughput Recommendations</div>';
+    for (const rec of data.recommendations) {
+      html += `<div class="rec-card rec-${rec.severity}">
+        <div class="rec-topic"><span class="rec-severity ${rec.severity}">[${rec.severity}]</span> ${escapeHtml(rec.topic)}</div>
+        <div class="rec-message">${escapeHtml(rec.message)}</div>
+      </div>`;
+    }
+    html += '</div>';
+  } else {
+    html += '<div class="insights-section">';
+    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Throughput Recommendations</div>';
+    html += '<div style="color:var(--green);font-size:12px;padding:8px">&#10003; No issues detected — cluster looks healthy</div>';
+    html += '</div>';
+  }
+
+  body.innerHTML = html;
+}
+
+function insightCard(label, value, sub) {
+  return `<div class="insights-stat-card">
+    <div class="insights-stat-label">${label}</div>
+    <div class="insights-stat-value">${typeof value === 'number' ? value.toLocaleString() : value}</div>
+    <div class="insights-stat-sub">${sub}</div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   INIT + STARTUP
+   ═══════════════════════════════════════════════════════════════════ */
+
+async function startDashboard() {
   // Fetch initial topics
   try {
     const res = await fetch('/api/topics');
@@ -1311,7 +2152,12 @@ async function init() {
       }
       document.getElementById('statusTopics').textContent = state.topics.length;
       document.getElementById('topicCount').textContent = `(${state.topics.length})`;
-      renderTopicGrid();
+      renderTopicList();
+
+      // Auto-select first topic
+      if (state.topics.length > 0) {
+        selectTopic(state.topics[0]);
+      }
     }
   } catch (e) { /* ignore */ }
 
@@ -1333,11 +2179,44 @@ async function init() {
   setInterval(() => {
     if (state.selectedTopic) fetchHistory();
   }, 60000);
+
+  // Periodic global history refresh
+  setInterval(() => {
+    fetchGlobalHistory();
+  }, 60000);
+
+  // Initial global history fetch (delayed to let topics load)
+  setTimeout(fetchGlobalHistory, 2000);
 }
 
-// Handle window resize for chart
+async function init() {
+  loadTheme();
+
+  // Fetch broker
+  try {
+    const res = await fetch('/api/broker');
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById('brokerInput').value = data.brokers;
+    }
+  } catch (e) { /* ignore */ }
+
+  // Check if we should show topic picker
+  const savedTopics = localStorage.getItem('sizetracker_tracked_topics');
+  if (!savedTopics) {
+    // First time — show topic picker
+    showTopicPicker();
+  } else {
+    // Returning user — skip picker, go straight to dashboard
+    document.getElementById('topicPickerOverlay').classList.add('hidden');
+    startDashboard();
+  }
+}
+
+// Handle window resize for charts
 window.addEventListener('resize', () => {
   if (state.historyData.length > 0) renderChart();
+  renderGlobalChart();
 });
 
 // Close modal on overlay click
@@ -1350,9 +2229,12 @@ document.getElementById('brokerInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') updateBroker();
 });
 
-// Close browser overlay on Escape key
+// Close overlays on Escape key
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeBrowser();
+  if (e.key === 'Escape') {
+    closeBrowser();
+    closeInsights();
+  }
 });
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1400,19 +2282,81 @@ function switchBrowserTab(tab, btn) {
 
   const browseCtrl = document.getElementById('browseControls');
   const snapCtrl = document.getElementById('snapshotControls');
+  const persistedCtrl = document.getElementById('persistedControls');
   const pagination = document.getElementById('browserPagination');
   const detail = document.getElementById('msgDetail');
 
-  if (tab === 'messages') {
-    browseCtrl.style.display = 'flex';
-    snapCtrl.style.display = 'none';
-    pagination.style.display = browseHasMore ? 'flex' : 'none';
-  } else {
-    browseCtrl.style.display = 'none';
-    snapCtrl.style.display = 'flex';
-    pagination.style.display = 'none';
-    detail.classList.remove('active');
+  browseCtrl.style.display = tab === 'messages' ? 'flex' : 'none';
+  snapCtrl.style.display = tab === 'snapshot' ? 'flex' : 'none';
+  persistedCtrl.style.display = tab === 'persisted' ? 'flex' : 'none';
+  pagination.style.display = (tab === 'messages' && browseHasMore) ? 'flex' : 'none';
+  if (tab !== 'messages') detail.classList.remove('active');
+}
+
+async function fetchPersisted() {
+  const type = document.getElementById('persistedType').value;
+  const topic = document.getElementById('persistedTopic').value.trim();
+  const limit = document.getElementById('persistedLimit').value || 100;
+  const body = document.getElementById('browserBody');
+
+  body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">querying MongoDB...</div>';
+
+  let url = `/api/persisted/${type}?limit=${limit}`;
+  if (topic) url += `&topic=${encodeURIComponent(topic)}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">${escapeHtml(err.error || 'Query failed')}</div>`;
+      return;
+    }
+    const data = await res.json();
+    renderPersisted(type, data);
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">error: ${escapeHtml(e.message)}</div>`;
   }
+}
+
+function renderPersisted(type, data) {
+  const body = document.getElementById('browserBody');
+  if (!data || data.length === 0) {
+    body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">no persisted data found</div>';
+    return;
+  }
+
+  let html = `<div style="color:var(--text-dim);font-size:11px;margin-bottom:8px">${data.length} ${type} from MongoDB</div>`;
+
+  if (type === 'messages') {
+    html += '<table class="msg-table"><thead><tr><th>topic</th><th>partition</th><th>offset</th><th>timestamp</th><th>size</th><th>key</th></tr></thead><tbody>';
+    for (const m of data) {
+      html += `<tr>
+        <td style="color:var(--cyan)">${escapeHtml(m.topic)}</td>
+        <td>${m.partition}</td>
+        <td class="msg-offset">${m.offset}</td>
+        <td class="msg-ts">${new Date(m.timestamp).toLocaleString()}</td>
+        <td class="msg-size ${sizeClass(m.size_bytes)}">${formatBytes(m.size_bytes)}</td>
+        <td class="msg-key">${m.key ? truncateStr(m.key, 30) : '<span style="color:var(--text-muted)">null</span>'}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  } else {
+    html += '<table class="msg-table"><thead><tr><th>id</th><th>topic</th><th>severity</th><th>msg size</th><th>threshold</th><th>timestamp</th></tr></thead><tbody>';
+    for (const a of data) {
+      const sevColor = a.severity === 'critical' ? 'var(--red)' : 'var(--yellow)';
+      html += `<tr>
+        <td style="color:var(--magenta)">#${a.alert_id}</td>
+        <td style="color:var(--cyan)">${escapeHtml(a.topic)}</td>
+        <td style="color:${sevColor};font-weight:600">${a.severity}</td>
+        <td class="msg-size ${a.message_size >= 10485760 ? 'critical' : 'warning'}">${formatBytes(a.message_size)}</td>
+        <td>${formatBytes(a.threshold)}</td>
+        <td class="msg-ts">${new Date(a.timestamp).toLocaleString()}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  }
+
+  body.innerHTML = html;
 }
 
 function onBrowseModeChange() {
@@ -1461,6 +2405,34 @@ async function executeBrowse() {
   }
 }
 
+async function browsePreset(preset) {
+  const topic = document.getElementById('browseTopic').value;
+  if (!topic) return;
+  const limit = document.getElementById('browseLimit').value || 50;
+  const url = `/api/browse/${encodeURIComponent(topic)}?preset=${preset}&limit=${limit}`;
+
+  const body = document.getElementById('browserBody');
+  body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">fetching...</div>';
+  document.getElementById('msgDetail').classList.remove('active');
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const errText = await res.text();
+      body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">error: ${escapeHtml(errText)}</div>`;
+      return;
+    }
+    const data = await res.json();
+    browseMessages = data.messages || [];
+    browseNextOffsets = data.next_offsets || [];
+    browseHasMore = data.has_more || false;
+    selectedMsgIndex = -1;
+    renderBrowseMessages();
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">fetch error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
 async function browseNext() {
   if (!browseNextOffsets || browseNextOffsets.length === 0) return;
 
@@ -1468,7 +2440,6 @@ async function browseNext() {
   if (!topic) return;
   const limit = document.getElementById('browseLimit').value || 50;
 
-  // Use first next_offset entry for pagination
   const no = browseNextOffsets[0];
   const url = `/api/browse/${encodeURIComponent(topic)}?limit=${limit}&partition=${no.partition}&offset=${no.offset}`;
 
@@ -1536,7 +2507,6 @@ function selectBrowseMessage(idx) {
   const m = browseMessages[idx];
   if (!m) return;
 
-  // Highlight row
   document.querySelectorAll('.msg-table tr').forEach(r => r.classList.remove('selected'));
   const rows = document.querySelectorAll('.msg-table tbody tr');
   if (rows[idx]) rows[idx].classList.add('selected');
