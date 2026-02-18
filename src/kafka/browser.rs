@@ -56,6 +56,7 @@ pub fn browse_by_offset(
         .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
         .set("enable.auto.commit", "false");
     super::apply_security(&mut config, security);
+    super::apply_timeouts(&mut config);
     let consumer: BaseConsumer = config
         .create()
         .map_err(|e| format!("Failed to create consumer: {}", e))?;
@@ -116,6 +117,7 @@ pub fn browse_by_timestamp(
         .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
         .set("enable.auto.commit", "false");
     super::apply_security(&mut config, security);
+    super::apply_timeouts(&mut config);
     let consumer: BaseConsumer = config
         .create()
         .map_err(|e| format!("Failed to create consumer: {}", e))?;
@@ -233,6 +235,7 @@ pub fn browse_from_beginning(
         .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
         .set("enable.auto.commit", "false");
     super::apply_security(&mut config, security);
+    super::apply_timeouts(&mut config);
     let consumer: BaseConsumer = config
         .create()
         .map_err(|e| format!("Failed to create consumer: {}", e))?;
@@ -316,6 +319,7 @@ pub fn browse_latest(
         .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
         .set("enable.auto.commit", "false");
     super::apply_security(&mut config, security);
+    super::apply_timeouts(&mut config);
     let consumer: BaseConsumer = config
         .create()
         .map_err(|e| format!("Failed to create consumer: {}", e))?;
@@ -406,6 +410,7 @@ pub fn fetch_full_message(
         .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
         .set("enable.auto.commit", "false");
     super::apply_security(&mut config, security);
+    super::apply_timeouts(&mut config);
     let consumer: BaseConsumer = config
         .create()
         .map_err(|e| format!("Failed to create consumer: {}", e))?;

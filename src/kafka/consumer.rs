@@ -43,6 +43,7 @@ pub async fn run_size_tracking_consumer(
         .set("auto.offset.reset", auto_offset_reset)
         .set("enable.auto.commit", "false");
     super::apply_security(&mut config, &security);
+    super::apply_timeouts(&mut config);
 
     let consumer: StreamConsumer = match config.create() {
         Ok(c) => c,

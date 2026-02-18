@@ -412,14 +412,17 @@ async fn main() -> std::io::Result<()> {
     let admin_for_lag = admin_consumer.clone();
     let lag_ts_for_collector = lag_timeseries.clone();
     let progress_for_lag = progress_tracker.clone();
+    let tracked_for_lag = tracked_topics.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
         loop {
             interval.tick().await;
+            // Only fetch lag for tracked topics (huge speedup on remote brokers)
+            let topics: Vec<String> = tracked_for_lag.read().await.iter().cloned().collect();
             let consumer = admin_for_lag.clone();
             let result = web::block(move || {
                 let consumer = consumer.blocking_lock();
-                admin::fetch_consumer_lag(&consumer)
+                admin::fetch_consumer_lag_for_topics(&consumer, &topics)
             })
             .await;
 

@@ -21,3 +21,14 @@ pub fn apply_security(config: &mut ClientConfig, security: &SecurityConfig) {
         config.set("sasl.password", password);
     }
 }
+
+/// Apply sensible network timeouts for remote/cloud brokers (e.g. Confluent Cloud).
+/// Without these, librdkafka defaults to 60s socket timeout and 10s connection setup,
+/// which causes long blocking when contending on the shared AdminConsumer mutex.
+pub fn apply_timeouts(config: &mut ClientConfig) {
+    config
+        .set("socket.timeout.ms", "10000")
+        .set("socket.connection.setup.timeout.ms", "5000")
+        .set("request.timeout.ms", "10000")
+        .set("metadata.max.age.ms", "60000");
+}

@@ -42,12 +42,13 @@ pub fn create_admin_consumer(
         .set("bootstrap.servers", brokers)
         .set("statistics.interval.ms", "5000");
     super::apply_security(&mut config, security);
+    super::apply_timeouts(&mut config);
     config.create_with_context(context)
 }
 
 /// List all non-internal topics from the Kafka cluster.
 pub fn list_topics(consumer: &AdminConsumer) -> Result<Vec<String>, rdkafka::error::KafkaError> {
-    let metadata = consumer.fetch_metadata(None, Duration::from_secs(10))?;
+    let metadata = consumer.fetch_metadata(None, Duration::from_secs(5))?;
     let mut topics: Vec<String> = metadata
         .topics()
         .iter()
@@ -63,7 +64,7 @@ pub fn discover_brokers(
     consumer: &AdminConsumer,
     current_brokers: &str,
 ) -> Result<BrokerDiscoveryResponse, rdkafka::error::KafkaError> {
-    let metadata = consumer.fetch_metadata(None, Duration::from_secs(10))?;
+    let metadata = consumer.fetch_metadata(None, Duration::from_secs(5))?;
     let discovered: Vec<BrokerInfo> = metadata
         .brokers()
         .iter()
@@ -83,48 +84,87 @@ pub fn discover_brokers(
     })
 }
 
-/// Fetch consumer lag for all non-internal topics using watermark offsets.
-/// This measures the gap between the tracker's consumer position and the log end offset.
+/// Fetch consumer lag for tracked topics using watermark offsets.
+/// If `topics` is empty, falls back to fetching all non-internal topics.
+/// Fetches metadata per-topic (smaller responses) to reduce round-trip time
+/// on high-latency connections like Confluent Cloud.
 pub fn fetch_consumer_lag(
     consumer: &AdminConsumer,
 ) -> Result<Vec<PartitionLag>, rdkafka::error::KafkaError> {
-    let metadata = consumer.fetch_metadata(None, Duration::from_secs(10))?;
+    fetch_consumer_lag_for_topics(consumer, &[])
+}
+
+/// Fetch consumer lag for specific topics only. When the topic list is non-empty,
+/// fetches metadata per-topic instead of a single fetch_metadata(None) for all,
+/// which is significantly faster on remote brokers since watermark fetches
+/// are limited to the partitions you actually care about.
+pub fn fetch_consumer_lag_for_topics(
+    consumer: &AdminConsumer,
+    topics: &[String],
+) -> Result<Vec<PartitionLag>, rdkafka::error::KafkaError> {
+    let timeout = Duration::from_secs(5);
+    let watermark_timeout = Duration::from_secs(3);
     let mut lags = Vec::new();
 
-    for topic_meta in metadata.topics() {
-        let topic_name = topic_meta.name();
-        if topic_name.starts_with("__") {
-            continue;
+    if topics.is_empty() {
+        // Fallback: fetch all topics (used by cluster insights)
+        let metadata = consumer.fetch_metadata(None, timeout)?;
+        for topic_meta in metadata.topics() {
+            let topic_name = topic_meta.name();
+            if topic_name.starts_with("__") {
+                continue;
+            }
+            fetch_partition_watermarks(consumer, topic_name, topic_meta.partitions(), watermark_timeout, &mut lags);
         }
-
-        for partition in topic_meta.partitions() {
-            let pid = partition.id();
-            match consumer.fetch_watermarks(topic_name, pid, Duration::from_secs(5)) {
-                Ok((low, high)) => {
-                    // Consumer offset is estimated as the high watermark minus what's pending
-                    // For a more accurate picture, we'd query committed offsets
-                    // But since our consumers are real-time, we estimate lag as small
-                    lags.push(PartitionLag {
-                        topic: topic_name.to_string(),
-                        partition: pid,
-                        current_offset: low,
-                        log_end_offset: high,
-                        lag: high - low,
-                    });
+    } else {
+        // Optimized: only fetch metadata + watermarks for tracked topics
+        for topic in topics {
+            match consumer.fetch_metadata(Some(topic), timeout) {
+                Ok(metadata) => {
+                    if let Some(topic_meta) = metadata.topics().iter().find(|t| t.name() == topic.as_str()) {
+                        fetch_partition_watermarks(consumer, topic, topic_meta.partitions(), watermark_timeout, &mut lags);
+                    }
                 }
                 Err(e) => {
-                    log::warn!(
-                        "Failed to fetch watermarks for {}-{}: {}",
-                        topic_name,
-                        pid,
-                        e
-                    );
+                    log::warn!("Failed to fetch metadata for topic {}: {}", topic, e);
                 }
             }
         }
     }
 
     Ok(lags)
+}
+
+/// Helper: fetch watermarks for all partitions of a topic and append to lags.
+fn fetch_partition_watermarks(
+    consumer: &AdminConsumer,
+    topic_name: &str,
+    partitions: &[rdkafka::metadata::MetadataPartition],
+    timeout: Duration,
+    lags: &mut Vec<PartitionLag>,
+) {
+    for partition in partitions {
+        let pid = partition.id();
+        match consumer.fetch_watermarks(topic_name, pid, timeout) {
+            Ok((low, high)) => {
+                lags.push(PartitionLag {
+                    topic: topic_name.to_string(),
+                    partition: pid,
+                    current_offset: low,
+                    log_end_offset: high,
+                    lag: high - low,
+                });
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to fetch watermarks for {}-{}: {}",
+                    topic_name,
+                    pid,
+                    e
+                );
+            }
+        }
+    }
 }
 
 /// Convert an rdkafka statistics Window to our LatencyWindow model.
@@ -184,7 +224,7 @@ pub fn build_cluster_insights(
     all_stats: Vec<crate::models::TopicStats>,
     kafka_stats: &SharedKafkaStats,
 ) -> Result<ClusterInsightsResponse, rdkafka::error::KafkaError> {
-    let metadata = consumer.fetch_metadata(None, Duration::from_secs(10))?;
+    let metadata = consumer.fetch_metadata(None, Duration::from_secs(5))?;
 
     // Brokers
     let brokers: Vec<BrokerInfo> = metadata
