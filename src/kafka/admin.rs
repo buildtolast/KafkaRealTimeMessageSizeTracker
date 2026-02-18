@@ -219,10 +219,12 @@ pub fn extract_broker_metrics(stats: &SharedKafkaStats) -> Option<Vec<BrokerMetr
 }
 
 /// Build full cluster insights: brokers, topics, partitions, lag, throughput, recommendations.
+/// Accepts pre-fetched consumer lag data to avoid redundant Kafka calls.
 pub fn build_cluster_insights(
     consumer: &AdminConsumer,
     all_stats: Vec<crate::models::TopicStats>,
     kafka_stats: &SharedKafkaStats,
+    cached_lag: Vec<PartitionLag>,
 ) -> Result<ClusterInsightsResponse, rdkafka::error::KafkaError> {
     let metadata = consumer.fetch_metadata(None, Duration::from_secs(5))?;
 
@@ -249,8 +251,8 @@ pub fn build_cluster_insights(
         total_partitions += t.partitions().len() as i32;
     }
 
-    // Consumer lag
-    let consumer_lag = fetch_consumer_lag(consumer).unwrap_or_default();
+    // Use pre-fetched consumer lag (from background collector cache)
+    let consumer_lag = cached_lag;
 
     // Topic throughput from StatsEngine
     let mut topic_throughput: Vec<TopicThroughput> = Vec::new();

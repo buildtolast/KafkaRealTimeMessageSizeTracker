@@ -20,6 +20,9 @@ pub struct ProgressTracker {
     state: Arc<RwLock<HashMap<String, HashMap<i32, (i64, i64, u64)>>>>,
     /// Time-series snapshots of progress over time.
     timeseries: Arc<RwLock<VecDeque<ProgressDataPoint>>>,
+    /// Cached watermarks from the last background lag collection.
+    /// Used by the API handler to avoid re-fetching from Kafka.
+    cached_watermarks: Arc<RwLock<Vec<PartitionLag>>>,
 }
 
 impl ProgressTracker {
@@ -27,6 +30,7 @@ impl ProgressTracker {
         Self {
             state: Arc::new(RwLock::new(HashMap::new())),
             timeseries: Arc::new(RwLock::new(VecDeque::new())),
+            cached_watermarks: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -121,9 +125,25 @@ impl ProgressTracker {
         }
     }
 
+    /// Get current consumer progress using cached watermarks (no Kafka call).
+    /// Returns immediately from in-memory data.
+    pub async fn get_progress_cached(&self) -> ConsumerProgressResponse {
+        let watermarks = self.cached_watermarks.read().await;
+        self.get_progress(&watermarks).await
+    }
+
+    /// Get the cached watermarks (for use by other handlers like cluster insights).
+    pub async fn get_cached_watermarks(&self) -> Vec<PartitionLag> {
+        self.cached_watermarks.read().await.clone()
+    }
+
     /// Capture a time-series snapshot of current progress.
     /// Called from the lag collector background task.
+    /// Also caches watermarks for instant API responses.
     pub async fn snapshot(&self, watermarks: &[PartitionLag]) {
+        // Cache the watermarks for instant API access
+        *self.cached_watermarks.write().await = watermarks.to_vec();
+
         let progress = self.get_progress(watermarks).await;
 
         let topics: Vec<TopicConsumed> = progress
@@ -162,6 +182,7 @@ impl ProgressTracker {
     pub async fn clear(&self) {
         self.state.write().await.clear();
         self.timeseries.write().await.clear();
+        self.cached_watermarks.write().await.clear();
     }
 }
 

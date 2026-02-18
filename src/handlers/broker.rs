@@ -104,19 +104,22 @@ pub async fn get_lag_history(lag_timeseries: web::Data<LagTimeSeries>) -> HttpRe
 }
 
 /// GET /api/cluster/insights — full cluster insights with lag, throughput, and recommendations.
+/// Uses cached consumer lag from the background collector to avoid redundant Kafka calls.
 pub async fn get_cluster_insights(
     admin_consumer: web::Data<Arc<Mutex<AdminConsumer>>>,
     stats_engine: web::Data<StatsEngine>,
     kafka_stats: web::Data<SharedKafkaStats>,
+    progress_tracker: web::Data<crate::tracker::progress::ProgressTracker>,
 ) -> HttpResponse {
     let consumer = admin_consumer.clone();
     let stats = stats_engine.clone();
     let all_stats = stats.get_all_stats().await;
     let ks = kafka_stats.get_ref().clone();
+    let cached_lag = progress_tracker.get_cached_watermarks().await;
 
     match web::block(move || {
         let consumer = consumer.blocking_lock();
-        admin::build_cluster_insights(&consumer, all_stats, &ks)
+        admin::build_cluster_insights(&consumer, all_stats, &ks, cached_lag)
     })
     .await
     {
