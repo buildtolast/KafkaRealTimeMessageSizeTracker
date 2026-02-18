@@ -1332,10 +1332,10 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
       <button class="btn" style="font-size:10px;padding:3px 8px" onclick="toggleDiscover()">[discover]</button>
       <div class="discover-popover" id="discoverPopover"></div>
     </div>
-    <button class="btn" style="color:var(--yellow);border-color:var(--yellow-dim)" onclick="reopenTopicPicker()">[topics]</button>
-    <button class="btn" style="color:var(--magenta);border-color:var(--magenta-dim)" onclick="openBrowser()">[history_browser]</button>
-    <button class="btn" style="color:var(--green);border-color:var(--green-dim)" onclick="openInsights()">[cluster_insights]</button>
-    <button class="btn" style="color:var(--cyan);border-color:var(--cyan)" onclick="openHealthReport()">[health_report]</button>
+    <button class="btn" id="btnTopics" style="color:var(--yellow);border-color:var(--yellow-dim)" onclick="reopenTopicPicker()">[topics]</button>
+    <button class="btn" id="btnBrowser" style="color:var(--magenta);border-color:var(--magenta-dim)" onclick="openBrowser()">[history_browser]</button>
+    <button class="btn" id="btnInsights" style="color:var(--green);border-color:var(--green-dim)" onclick="openInsights()">[cluster_insights]</button>
+    <button class="btn" id="btnHealth" style="color:var(--cyan);border-color:var(--cyan)" onclick="openHealthReport()">[health_report]</button>
   </div>
 
   <!-- Main Content -->
@@ -1921,12 +1921,30 @@ function updateConnStatus(connected) {
 function updateBrokerButtons() {
   const connectBtn = document.getElementById('brokerBtn');
   const disconnectBtn = document.getElementById('brokerDisconnectBtn');
+  const actionBtns = ['btnTopics', 'btnBrowser', 'btnInsights', 'btnHealth'];
+
   if (state.connected) {
     connectBtn.style.display = 'none';
     disconnectBtn.style.display = '';
+    actionBtns.forEach(id => {
+      const btn = document.getElementById(id);
+      btn.disabled = false;
+      btn.style.opacity = '';
+      btn.style.pointerEvents = '';
+    });
   } else {
     connectBtn.style.display = '';
     disconnectBtn.style.display = 'none';
+    actionBtns.forEach(id => {
+      const btn = document.getElementById(id);
+      btn.disabled = true;
+      btn.style.opacity = '0.35';
+      btn.style.pointerEvents = 'none';
+    });
+    // Close any open overlays — they show stale data when disconnected
+    closeInsights();
+    closeHealthReport();
+    closeBrowser();
   }
 }
 
@@ -2309,8 +2327,10 @@ async function updateBroker() {
     });
     if (res.ok) {
       resetDashboardState();
+      state.dashboardStarted = false;
       connectWebSocket();
-      updateConnStatus(true);
+      // Show topic picker so user can select topics for the new broker
+      showTopicPicker();
     }
   } catch (e) { /* ignore */ }
 }
@@ -3905,6 +3925,7 @@ async function startDashboard() {
 
 async function init() {
   loadTheme();
+  updateBrokerButtons(); // Disable action buttons until connected
 
   // Fetch broker
   try {
