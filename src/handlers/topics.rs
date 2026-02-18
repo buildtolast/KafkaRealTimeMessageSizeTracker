@@ -166,10 +166,12 @@ pub async fn reset_all(
 pub async fn disconnect(
     topic_manager: web::Data<Arc<TopicManager>>,
     tracked_topics: web::Data<Arc<RwLock<HashSet<String>>>>,
+    progress_tracker: web::Data<ProgressTracker>,
 ) -> HttpResponse {
     topic_manager.clear().await;
     tracked_topics.write().await.clear();
+    progress_tracker.clear().await;
 
-    log::info!("Disconnected: all consumers stopped");
+    log::info!("Disconnected: all consumers stopped, progress cleared");
     HttpResponse::Ok().json(serde_json::json!({ "status": "disconnected" }))
 }
