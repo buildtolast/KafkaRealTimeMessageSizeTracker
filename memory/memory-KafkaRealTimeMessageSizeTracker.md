@@ -95,7 +95,8 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 ### Confluent Cloud / High-Latency Optimizations
 - **apply_timeouts()**: socket 10s, connection setup 5s, request 10s, metadata max age 60s (applied to all 8 ClientConfig creation points)
 - **Scoped lag fetching**: `fetch_consumer_lag_for_topics()` fetches metadata per-topic instead of all-topics (24 sequential watermark calls → only tracked)
-- **Cached watermarks**: Background lag collector caches watermarks in ProgressTracker; consumer progress API + cluster insights API serve from cache (zero Kafka calls)
+- **Cached watermarks**: Background lag collector caches watermarks in ProgressTracker; consumer progress API serves from cache (zero Kafka calls)
+- **Cached cluster metadata**: Background lag collector also caches `CachedClusterMetadata` (brokers, topic/partition counts); cluster insights API serves 100% from cache (no AdminConsumer mutex, no Kafka calls, no `web::block`)
 - **Throttled polling**: auto-discovery 60s, lag collector 30s, frontend overlays 15s, global history 60s
 - **Topic filtering**: `GET /api/topics` returns only tracked topics from in-memory HashSet (no Kafka metadata fetch when topics selected); WebSocket handlers filter untracked events
 
