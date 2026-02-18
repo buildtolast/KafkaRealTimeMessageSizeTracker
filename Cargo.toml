@@ -6,8 +6,8 @@ description = "Real-time Kafka message size tracking dashboard with alerts and a
 
 [features]
 default = ["static-kafka"]
-static-kafka = ["rdkafka/cmake-build"]
-dynamic-kafka = ["rdkafka/dynamic-linking"]
+static-kafka = ["rdkafka/cmake-build", "rdkafka/ssl"]
+dynamic-kafka = ["rdkafka/dynamic-linking", "rdkafka/ssl"]
 
 [dependencies]
 actix-web = "4"
