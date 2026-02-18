@@ -57,7 +57,7 @@ src/
 ```
 
 ### Key Patterns (from KafkaDashboard)
-- **TopicManager**: `Arc<RwLock<HashMap<String, broadcast::Sender<MessageSizeEvent>>>>`, lazy consumer spawn, subscribe() accepts StartPosition
+- **TopicManager**: `Arc<RwLock<HashMap<String, TopicConsumer>>>` (TopicConsumer = tx + JoinHandle), lazy consumer spawn, subscribe() accepts StartPosition, re-creates consumer (abort + respawn) when non-None start_position is provided for existing topic
 - **SharedAdminConsumer**: `Arc<Mutex<BaseConsumer>>` with `web::block` for metadata ops
 - **SharedMongoStore**: `Option<Arc<MongoStore>>` — initialized if `--mongo-uri` is provided
 - **WebSocket**: `actix_ws::Message` + `tokio::select!` multiplexing (broadcast rx + client msgs + heartbeat)

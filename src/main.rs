@@ -22,10 +22,17 @@ use rdkafka::consumer::BaseConsumer;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::task::JoinHandle;
+
+/// Per-topic consumer state: broadcast channel + task handle for cleanup.
+struct TopicConsumer {
+    tx: broadcast::Sender<MessageSizeEvent>,
+    task_handle: JoinHandle<()>,
+}
 
 /// Manages per-topic Kafka consumers and broadcast channels.
 pub struct TopicManager {
-    consumers: Arc<RwLock<HashMap<String, broadcast::Sender<MessageSizeEvent>>>>,
+    consumers: Arc<RwLock<HashMap<String, TopicConsumer>>>,
     brokers: Arc<RwLock<String>>,
     consumer_group: String,
     stats_engine: StatsEngine,
@@ -56,16 +63,25 @@ impl TopicManager {
 
     /// Subscribe to a topic. Spawns a consumer if this is the first subscription.
     /// `start_position` controls where the consumer starts reading from.
+    /// If a non-None start_position is provided and a consumer already exists,
+    /// the existing consumer is aborted and re-created with the new position.
     async fn subscribe(&self, topic: &str, start_position: Option<StartPosition>) -> broadcast::Receiver<MessageSizeEvent> {
         let mut consumers = self.consumers.write().await;
 
-        if let Some(tx) = consumers.get(topic) {
-            return tx.subscribe();
+        if let Some(existing) = consumers.get(topic) {
+            if start_position.is_none() {
+                // No specific position requested — reuse existing consumer
+                return existing.tx.subscribe();
+            }
+            // Start position specified — abort old tasks and re-create below
+            log::info!("Re-creating consumer for topic {} with start position {:?}", topic, start_position);
+        }
+        if let Some(old) = consumers.remove(topic) {
+            old.task_handle.abort();
         }
 
         // Create a new broadcast channel for this topic
         let (tx, rx) = broadcast::channel::<MessageSizeEvent>(1024);
-        consumers.insert(topic.to_string(), tx.clone());
 
         // Spawn the consumer task
         let brokers = self.brokers.read().await.clone();
@@ -78,12 +94,12 @@ impl TopicManager {
         let consumer_alerts = self.alert_engine.clone();
         let mongo = self.mongo_store.clone();
 
-        tokio::spawn(async move {
+        let task_handle = tokio::spawn(async move {
             let mut event_rx = event_tx.subscribe();
 
             // Spawn the actual Kafka consumer (reads threshold dynamically from AlertEngine)
             let consumer_topic = topic_owned.clone();
-            tokio::spawn(async move {
+            let kafka_handle = tokio::spawn(async move {
                 crate::kafka::consumer::run_size_tracking_consumer(
                     brokers,
                     consumer_topic,
@@ -182,7 +198,12 @@ impl TopicManager {
                     }
                 }
             }
+
+            // Clean up inner kafka consumer if event processing ended
+            kafka_handle.abort();
         });
+
+        consumers.insert(topic.to_string(), TopicConsumer { tx: tx.clone(), task_handle });
 
         rx
     }
@@ -197,7 +218,9 @@ impl TopicManager {
     /// Clear all consumers (e.g., on broker change).
     async fn clear(&self) {
         let mut consumers = self.consumers.write().await;
-        consumers.clear();
+        for (_, consumer) in consumers.drain() {
+            consumer.task_handle.abort();
+        }
     }
 }
 
