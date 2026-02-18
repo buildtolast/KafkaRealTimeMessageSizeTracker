@@ -164,7 +164,7 @@ pub async fn download_message(
             .insert_header((
                 "Content-Disposition",
                 format!(
-                    "attachment; filename=\"msg-{}-p{}-o{}.bin\"",
+                    "attachment; filename=\"msg-{}-p{}-o{}.json\"",
                     topic, partition, offset
                 ),
             ))

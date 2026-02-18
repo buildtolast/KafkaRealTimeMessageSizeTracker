@@ -114,17 +114,17 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 - **Effects**: scanline overlay, CRT text glow (text-shadow), blinking cursor
 - **Layout**: Resizable panels — vertical sidebar (default 280px, drag-to-resize) + 2 rows of 2 panels + global panel. All dividers (sidebar/columns/rows) are draggable via `.resize-handle-v`/`.resize-handle-h` with cyan highlight on hover. Structure: `.panels-area` (flex-row) > sidebar + resize-handle + `.panels-wrap` (flex-column) > `.panel-row` containers with column resize handles between left/right panels
 - **Topic selection**: Startup picker overlay, localStorage persistence for selected topics
-- **Priority display**: Topics sorted by critical->warning->healthy, `.priority-alert` CSS with pulse-red animation, red border for threshold-crossing topics
+- **Topic sorting**: Sidebar topics sorted by avg_bytes descending (largest first), red blinking border (`priority-alert`) for topics exceeding per-topic or global alert thresholds
 - **Enhanced alerts**: Time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery**: Popover UI with click-to-connect
-- **Cluster insights**: Full-screen overlay with tables, lag bars, recommendation cards
+- **Cluster insights**: Full-screen overlay with tables, lag bars, recommendation cards, auto-refresh every 5s while open (real-time consumer lag)
 - **History Browser**: Full-screen overlay with 3 tabs (messages browse + global snapshot + persisted data), message detail sidebar, pagination
 - **Historical play presets**: `?preset=beginning|1h|1d|latest` param for quick browsing
 - **Chart**: Lightweight Canvas-based line chart (no external lib), auto-scaling, cyan line (no area fill)
 - **Chart type selector**: All mini-charts have a line/area/bar toggle (`.chart-type-toggle`). State: `feedChartTypeMode` and `alertChartTypeMode` (default: 'line')
 - **Live feed mini-chart**: Dual-axis timeseries (avg size cyan line + msg/s magenta dashed line), per-second rolling buffer (120 pts), crosshair hover with tooltip. Switchable modes: live | 1h | 6h | 24h | 7d — historical mode shows multi-topic colored lines from `/api/history/{topic}?range=...`
 - **Alerts mini-chart**: Dual-line chart (warnings yellow + criticals red), per-10-second buckets, crosshair hover with tooltip. Switchable modes: live | 1h | 6h | all — historical mode aggregates `state.alerts` into time buckets from `/api/alerts?limit=1000`. Bar mode available via chart type toggle
-- **Global history chart**: Dual-axis per topic — left Y: avg_bytes (solid colored lines), right Y: message_count (dashed colored lines). Crosshair hover with per-topic tooltip showing both size and count. Legend indicates solid=size, dashed=count
+- **Global history chart**: Dual-axis per topic — left Y: avg_bytes (solid colored lines), right Y: message_count (dashed colored lines). Crosshair hover with per-topic tooltip sorted by avg_bytes descending. Legend indicates solid=size, dashed=count
 - **WebSocket**: auto-reconnect with exponential backoff
 
 ## MongoDB Persistence

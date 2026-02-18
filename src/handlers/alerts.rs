@@ -86,7 +86,7 @@ pub async fn download_capture(
             .insert_header((
                 "Content-Disposition",
                 format!(
-                    "attachment; filename=\"msg-{}-p{}-o{}.bin\"",
+                    "attachment; filename=\"msg-{}-p{}-o{}.json\"",
                     msg.topic, msg.partition, msg.offset
                 ),
             ))

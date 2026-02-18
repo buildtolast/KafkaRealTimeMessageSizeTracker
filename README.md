@@ -14,7 +14,7 @@ Real-time Kafka message size monitoring dashboard with configurable alerts, hist
 - **Auto-discovery** of new Kafka topics every 30 seconds
 - **Hot-swappable broker** configuration without restart
 - **Topic selection** — startup picker overlay to choose which topics to monitor, with localStorage persistence
-- **Priority display** — topics sorted by critical, warning, healthy status with pulse-red animation for threshold-crossing topics
+- **Size-based topic sorting** — sidebar topics sorted by average message size (largest first) with red blinking border for topics exceeding alert thresholds
 - **Enhanced alerts** — time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery** — discover cluster brokers via metadata API, popover UI with click-to-connect
 - **Cluster insights** — full-screen overlay showing brokers, topics, partitions, consumer lag, throughput per topic, and recommendations
@@ -103,7 +103,7 @@ The dashboard uses a vertical sidebar (280px left) with expandable topic cards a
 | Section | Description |
 |---------|-------------|
 | **Header** | App title with blinking cursor, connection status, theme switcher, broker discovery, cluster insights, `[history_browser]` button |
-| **Sidebar** | Topic cards sorted by priority (critical > warning > healthy), expandable with quick stats, topic selection controls |
+| **Sidebar** | Topic cards sorted by average message size (largest first), red blinking border for threshold-exceeding topics, expandable with quick stats |
 | **Live Feed** | Scrolling real-time log of message sizes, color-coded by severity |
 | **Stats Detail** | Selected topic percentiles table (min, p50, p95, p99, max), rates |
 | **Alerts** | Active/recent alerts with severity indicators, time window filter (5m/15m/1h/all) |
@@ -241,7 +241,7 @@ The cluster insights feature (`GET /api/cluster/insights`) provides a comprehens
 - **Throughput** — messages/sec and bytes/sec per topic
 - **Recommendations** — actionable suggestions based on lag, throughput patterns, and partition distribution
 
-Accessible via the cluster insights button in the dashboard header, displayed as a full-screen overlay with tables and cards.
+Accessible via the cluster insights button in the dashboard header, displayed as a full-screen overlay with tables and cards. Consumer lag auto-refreshes every 5 seconds while the overlay is open.
 
 ## Docker
 

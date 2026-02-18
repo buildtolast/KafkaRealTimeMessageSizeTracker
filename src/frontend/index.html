@@ -360,16 +360,31 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   box-shadow: 0 0 8px rgba(139,233,253,0.15);
   padding: 14px;
 }
-.topic-card.alert-warning { border-left: 3px solid var(--yellow); }
 .topic-card.alert-critical { border-left: 3px solid var(--red); }
 .topic-card.priority-alert {
   border: 2px solid var(--red);
-  box-shadow: 0 0 12px rgba(255,85,85,0.2);
-  animation: pulse-red 2s ease-in-out infinite;
+  box-shadow: 0 0 12px rgba(255,85,85,0.25);
+  animation: blink-red 1.2s ease-in-out infinite;
 }
-@keyframes pulse-red {
-  0%, 100% { box-shadow: 0 0 12px rgba(255,85,85,0.2); }
-  50% { box-shadow: 0 0 20px rgba(255,85,85,0.4); }
+@keyframes blink-red {
+  0%, 100% {
+    border-color: var(--red);
+    box-shadow: 0 0 12px rgba(255,85,85,0.25);
+    background: var(--surface);
+  }
+  50% {
+    border-color: #ff3333;
+    box-shadow: 0 0 22px rgba(255,85,85,0.5), inset 0 0 8px rgba(255,85,85,0.06);
+    background: rgba(255,85,85,0.04);
+  }
+}
+.topic-card.alert-warning {
+  border-left: 3px solid var(--yellow);
+  animation: pulse-yellow 3s ease-in-out infinite;
+}
+@keyframes pulse-yellow {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 10px rgba(241,250,140,0.15); }
 }
 
 .topic-name { color: var(--cyan); font-weight: 600; font-size: 13px; margin-bottom: 6px; }
@@ -1481,6 +1496,8 @@ const state = {
   globalRange: '1h',
   globalHistoryData: {},
   alertWindowMinutes: 0,
+  alertDefaults: { warning: 1048576, critical: 10485760 },
+  alertConfigs: {},  // per-topic: { topic: { warning, critical } }
 };
 
 const MAX_FEED = 200;
@@ -1547,9 +1564,15 @@ function formatTime(ts) {
   return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function sizeClass(bytes, warnThreshold = 1048576) {
-  if (bytes >= warnThreshold) return 'red';
-  if (bytes >= warnThreshold * 0.5) return 'yellow';
+function getTopicThreshold(topic) {
+  if (topic && state.alertConfigs[topic]) return state.alertConfigs[topic].warning;
+  return state.alertDefaults.warning;
+}
+
+function sizeClass(bytes, warnThreshold = undefined) {
+  const t = warnThreshold !== undefined ? warnThreshold : state.alertDefaults.warning;
+  if (bytes >= t) return 'red';
+  if (bytes >= t * 0.5) return 'yellow';
   return 'green';
 }
 
@@ -1697,12 +1720,9 @@ function handleAlert(alert) {
 }
 
 /* ── Render: Topic List (Sidebar) ── */
-function getTopicPriority(topic) {
+function getTopicAvgSize(topic) {
   const s = state.stats[topic];
-  if (!s) return 3;
-  if (sizeClass(s.max_bytes) === 'red') return 0;
-  if (sizeClass(s.max_bytes) === 'yellow') return 1;
-  return 2;
+  return s ? s.avg_bytes : -1;
 }
 
 function renderTopicList() {
@@ -1712,11 +1732,11 @@ function renderTopicList() {
     return;
   }
 
-  // Sort: critical first, then warning, then healthy, then alphabetical
+  // Sort by average message size descending; topics without stats go last
   const sortedTopics = [...state.topics].sort((a, b) => {
-    const pa = getTopicPriority(a);
-    const pb = getTopicPriority(b);
-    if (pa !== pb) return pa - pb;
+    const sa = getTopicAvgSize(a);
+    const sb = getTopicAvgSize(b);
+    if (sa !== sb) return sb - sa;
     return a.localeCompare(b);
   });
 
@@ -1729,7 +1749,8 @@ function renderTopicList() {
     let statusHtml = '';
 
     if (s) {
-      const sc = sizeClass(s.max_bytes);
+      const threshold = getTopicThreshold(topic);
+      const sc = sizeClass(s.avg_bytes, threshold);
       if (sc === 'red') {
         alertClass = ' alert-critical';
         priorityClass = ' priority-alert';
@@ -1745,8 +1766,8 @@ function renderTopicList() {
         ${statusHtml}
         <div class="topic-name">${topic}</div>
         <div class="topic-metric"><span>msg/s</span><span class="value">${formatRate(s.messages_per_sec)}</span></div>
-        <div class="topic-metric"><span>avg</span><span class="value ${sizeClass(s.avg_bytes)}">${formatBytes(s.avg_bytes)}</span></div>
-        <div class="topic-metric"><span>max</span><span class="value ${sizeClass(s.max_bytes)}">${formatBytes(s.max_bytes)}</span></div>
+        <div class="topic-metric"><span>avg</span><span class="value ${sizeClass(s.avg_bytes, threshold)}">${formatBytes(s.avg_bytes)}</span></div>
+        <div class="topic-metric"><span>max</span><span class="value ${sizeClass(s.max_bytes, threshold)}">${formatBytes(s.max_bytes)}</span></div>
         <div class="topic-metric"><span>count</span><span class="value">${s.message_count.toLocaleString()}</span></div>
         <div class="topic-card-expanded">
           <div class="topic-metric"><span>p50</span><span class="value">${formatBytes(s.p50)}</span></div>
@@ -2186,18 +2207,24 @@ function renderGlobalChart() {
     if (refData[refIdx]) {
       tooltipHtml += `<div style="color:var(--text-muted)">${formatTime(refData[refIdx].timestamp)}</div>`;
     }
+    // Build tooltip entries and sort by avg_bytes descending
+    const tooltipEntries = [];
     topicEntries.forEach((topic, ti) => {
       const data = state.globalHistoryData[topic];
       const di = Math.min(clampI, data.length - 1);
       const color = GLOBAL_CHART_COLORS[ti % GLOBAL_CHART_COLORS.length];
       if (data[di]) {
-        tooltipHtml += `<div><span style="color:${color}">${topic}:</span> ${formatBytes(data[di].avg_bytes)} / ${data[di].message_count} msg</div>`;
+        tooltipEntries.push({ topic, color, avgBytes: data[di].avg_bytes, count: data[di].message_count, di, dataLen: data.length });
         // Dots on both lines
         ctx.fillStyle = color;
         ctx.beginPath(); ctx.arc(xScale(di, data.length), yScaleSize(data[di].avg_bytes), 3, 0, Math.PI * 2); ctx.fill();
         ctx.beginPath(); ctx.arc(xScale(di, data.length), yScaleCount(data[di].message_count), 2.5, 0, Math.PI * 2); ctx.fill();
       }
     });
+    tooltipEntries.sort((a, b) => b.avgBytes - a.avgBytes);
+    for (const e of tooltipEntries) {
+      tooltipHtml += `<div><span style="color:${e.color}">${e.topic}:</span> ${formatBytes(e.avgBytes)} / ${e.count} msg</div>`;
+    }
 
     const globalTooltip = document.getElementById('globalChartTooltip');
     if (globalTooltip) {
@@ -2822,6 +2849,10 @@ async function saveAlertDefaults() {
       // Update placeholders for per-topic section
       document.getElementById('alertConfigWarning').placeholder = result.warning_threshold;
       document.getElementById('alertConfigCritical').placeholder = result.critical_threshold;
+      // Sync state so topic cards reflect new thresholds
+      state.alertDefaults.warning = result.warning_threshold;
+      state.alertDefaults.critical = result.critical_threshold;
+      renderTopicList();
     }
   } catch (e) { /* ignore */ }
 }
@@ -2834,7 +2865,7 @@ async function saveAlertConfig() {
   if (!topic) return;
 
   try {
-    await fetch('/api/alerts/config', {
+    const resp = await fetch('/api/alerts/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2844,6 +2875,11 @@ async function saveAlertConfig() {
         enabled: true,
       }),
     });
+    if (resp.ok) {
+      const result = await resp.json();
+      state.alertConfigs[result.topic] = { warning: result.warning_threshold, critical: result.critical_threshold };
+      renderTopicList();
+    }
     closeAlertConfig();
   } catch (e) { /* ignore */ }
 }
@@ -2983,13 +3019,22 @@ document.addEventListener('click', (e) => {
    CLUSTER INSIGHTS
    ═══════════════════════════════════════════════════════════════════ */
 
+let insightsRefreshInterval = null;
+
 function openInsights() {
   document.getElementById('insightsOverlay').classList.add('active');
   fetchInsights();
+  // Auto-refresh consumer lag every 5 seconds while overlay is open
+  if (insightsRefreshInterval) clearInterval(insightsRefreshInterval);
+  insightsRefreshInterval = setInterval(fetchInsights, 5000);
 }
 
 function closeInsights() {
   document.getElementById('insightsOverlay').classList.remove('active');
+  if (insightsRefreshInterval) {
+    clearInterval(insightsRefreshInterval);
+    insightsRefreshInterval = null;
+  }
 }
 
 function refreshInsights() {
@@ -3063,7 +3108,8 @@ function renderInsights(data) {
   // ── Consumer Lag per Partition ──
   if (data.consumer_lag && data.consumer_lag.length > 0) {
     html += '<div class="insights-section">';
-    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Consumer Lag by Partition</div>';
+    const lagTs = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    html += `<div class="insights-section-title"><span class="prompt">&gt;</span> Consumer Lag by Partition <span style="color:var(--text-muted);font-size:0.8em;margin-left:8px">updated ${lagTs}</span></div>`;
     html += '<table class="insights-table"><thead><tr><th>Topic</th><th>Partition</th><th>Current Offset</th><th>Log End</th><th>Lag</th><th></th></tr></thead><tbody>';
     // Sort by lag descending
     const sorted = [...data.consumer_lag].sort((a, b) => b.lag - a.lag);
@@ -3146,6 +3192,26 @@ async function startDashboard() {
       document.getElementById('alertCount').textContent = `(${state.alerts.length})`;
       renderAlerts();
     }
+  } catch (e) { /* ignore */ }
+
+  // Fetch alert thresholds (global defaults + per-topic configs)
+  try {
+    const [defRes, cfgRes] = await Promise.all([
+      fetch('/api/alerts/defaults'),
+      fetch('/api/alerts/config'),
+    ]);
+    if (defRes.ok) {
+      const d = await defRes.json();
+      state.alertDefaults.warning = d.warning_threshold;
+      state.alertDefaults.critical = d.critical_threshold;
+    }
+    if (cfgRes.ok) {
+      const configs = await cfgRes.json();
+      for (const c of configs) {
+        state.alertConfigs[c.topic] = { warning: c.warning_threshold, critical: c.critical_threshold };
+      }
+    }
+    renderTopicList();
   } catch (e) { /* ignore */ }
 
   // Connect WebSocket
