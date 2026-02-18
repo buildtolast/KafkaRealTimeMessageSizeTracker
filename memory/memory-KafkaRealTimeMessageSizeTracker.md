@@ -119,7 +119,7 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - **App subtitle**: "Real-time message size monitoring & alerting" shown below app name in header
 - **Topic selection**: Startup picker overlay with "Start From" position selector (Latest/Beginning/Timestamp/Offset), localStorage persistence for selected topics. Re-openable mid-session via `[topics]` header button for toggling topics on/off without restarting dashboard
 - **Topic sorting**: Sidebar topics sorted by recent avg descending (rate-window based), 4-state lifecycle: Critical → Warning → Recovered (30s timer) → OK, color-coded borders: green (ok), yellow (warning), red blinking step-end (critical/`priority-alert`), cyan pulse (recovered)
-- **Topic names**: Per-topic unique colors from `GLOBAL_CHART_COLORS` palette, assigned by stable topic index
+- **Topic names**: Status-based colors — red (critical), yellow (warning), cyan (recovered), green (healthy/ok)
 - **Enhanced alerts**: Time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery**: Popover UI with click-to-connect
 - **Cluster insights**: Full-screen overlay with tables, lag bars (top panel), recommendation cards, auto-refresh every 5s while open (real-time consumer lag), lag time-series chart (per-topic + total, crosshair hover)

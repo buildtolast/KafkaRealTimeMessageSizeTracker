@@ -2063,18 +2063,14 @@ function renderTopicList() {
     return a.localeCompare(b);
   });
 
-  // Build a stable color map: each topic gets a fixed color from the palette
-  const topicColorMap = {};
-  state.topics.forEach((t, i) => { topicColorMap[t] = GLOBAL_CHART_COLORS[i % GLOBAL_CHART_COLORS.length]; });
-
   let html = '';
   for (const topic of sortedTopics) {
     const s = state.stats[topic];
     const selected = state.selectedTopic === topic ? ' selected' : '';
-    const nameColor = topicColorMap[topic] || GLOBAL_CHART_COLORS[0];
     let alertClass = '';
     let priorityClass = '';
     let statusHtml = '';
+    let nameColor = 'var(--green)'; // default: healthy green
 
     if (s) {
       const threshold = getTopicThreshold(topic);
@@ -2084,15 +2080,19 @@ function renderTopicList() {
         alertClass = ' alert-critical';
         priorityClass = ' priority-alert';
         statusHtml = '<span class="topic-status critical">CRIT</span>';
+        nameColor = 'var(--red)';
       } else if (topicStatus === 'warning') {
         alertClass = ' alert-warning';
         statusHtml = '<span class="topic-status warning">WARN</span>';
+        nameColor = 'var(--yellow)';
       } else if (topicStatus === 'recovered') {
         alertClass = ' alert-recovered';
         statusHtml = '<span class="topic-status recovered">RECV</span>';
+        nameColor = 'var(--cyan)';
       } else {
         alertClass = ' alert-healthy';
         statusHtml = '<span class="topic-status healthy">OK</span>';
+        nameColor = 'var(--green)';
       }
 
       html += `<div class="topic-card${selected}${alertClass}${priorityClass}" onclick="selectTopic('${topic}')">
