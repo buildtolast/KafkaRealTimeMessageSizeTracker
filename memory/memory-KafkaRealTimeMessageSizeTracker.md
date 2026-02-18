@@ -117,7 +117,8 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - **Effects**: scanline overlay (disabled in light theme), CRT text glow (text-shadow), blinking cursor
 - **Layout**: Resizable panels — vertical sidebar (default 280px, drag-to-resize) + 2 rows of 2 panels + global panel. All dividers (sidebar/columns/rows) are draggable via `.resize-handle-v`/`.resize-handle-h` with cyan highlight on hover
 - **App subtitle**: "Real-time message size monitoring & alerting" shown below app name in header
-- **Topic selection**: Startup picker overlay with "Start From" position selector (Latest/Beginning/Timestamp/Offset), localStorage persistence for selected topics. Re-openable mid-session via `[topics]` header button for toggling topics on/off without restarting dashboard
+- **Topic selection**: Startup picker overlay with "Start From" position selector (Latest/Beginning/Timestamp/Offset), localStorage persistence for selected topics. Re-openable mid-session via `[topics]` header button — full dashboard reset (backend + frontend) on re-selection
+- **Broker connect/disconnect**: Connect button switches to red disconnect button when connected. Disconnect stops all consumers, clears tracked topics, resets dashboard, prevents WebSocket auto-reconnect. Endpoints: `POST /api/reset` (clear all), `POST /api/disconnect` (stop consumers only)
 - **Topic sorting**: Sidebar topics sorted by recent avg descending (rate-window based), 4-state lifecycle: Critical → Warning → Recovered (30s timer) → OK, color-coded borders: green (ok), yellow (warning), red blinking step-end (critical/`priority-alert`), cyan pulse (recovered)
 - **Topic names**: Status-based colors — red (critical), yellow (warning), cyan (recovered), green (healthy/ok)
 - **Enhanced alerts**: Time window filter (5m/15m/1h/all), shows all topics

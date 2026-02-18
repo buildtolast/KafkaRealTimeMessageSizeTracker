@@ -12,8 +12,8 @@ Real-time Kafka message size monitoring dashboard with configurable alerts, hist
 - **Live feed** of message sizes with color-coded severity (green/yellow/red)
 - **WebSocket streaming** with rate limiting (50 events/sec), topic filtering, and auto-reconnect
 - **Auto-discovery** of new Kafka topics every 30 seconds
-- **Hot-swappable broker** configuration without restart
-- **Topic selection with replay** — startup picker overlay to choose which topics to monitor (with localStorage persistence) and select a start position (Latest, Beginning, Timestamp, or specific Offset) for replaying historical data through the stats engine. Re-openable mid-session via `[topics]` header button for toggling topics on/off
+- **Hot-swappable broker** with connect/disconnect toggle — disconnect stops all consumers and resets dashboard
+- **Topic selection with replay** — startup picker overlay to choose which topics to monitor (with localStorage persistence) and select a start position (Latest, Beginning, Timestamp, or specific Offset) for replaying historical data through the stats engine. Re-openable mid-session via `[topics]` button with full dashboard reset
 - **4-state topic lifecycle** — sidebar topics sorted by recent average message size with 4-state lifecycle: Critical → Warning → Recovered (30s cooldown) → OK, each with unique per-topic colors from a palette
 - **Enhanced alerts** — time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery** — discover cluster brokers via metadata API, popover UI with click-to-connect
@@ -126,6 +126,8 @@ The dashboard uses a vertical sidebar (280px left) with expandable topic cards a
 | `/api/topics` | GET | List all topics with summary stats and alert status |
 | `/api/topics/available` | GET | List all available Kafka topics for selection |
 | `/api/topics/toggle` | POST | Enable/disable topic monitoring |
+| `/api/reset` | POST | Stop all consumers, clear stats/alerts/storage (full reset) |
+| `/api/disconnect` | POST | Stop all consumers without clearing stats |
 | `/api/stats/{topic}` | GET | Detailed stats: count, avg, min, max, p50, p95, p99, rates |
 | `/api/alerts` | GET | Recent alerts (`?limit=N`, default 100) |
 | `/api/alerts/download/{id}` | GET | Download captured oversized message payload (binary) |
@@ -202,7 +204,7 @@ src/
 │   └── alerts.rs        # AlertEngine: per-topic thresholds, circular alert buffer
 ├── storage.rs           # TimeSeriesStorage: per-minute circular buffer (7 days), snapshot_at() for time-travel
 ├── handlers/
-│   ├── topics.rs        # GET /api/topics, GET /api/topics/available, POST /api/topics/toggle
+│   ├── topics.rs        # GET /api/topics, GET /api/topics/available, POST /api/topics/toggle, POST /api/reset, POST /api/disconnect
 │   ├── stats.rs         # GET /api/stats/{topic}
 │   ├── alerts.rs        # GET /api/alerts, alert config
 │   ├── history.rs       # GET /api/history/{topic}

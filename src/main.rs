@@ -457,6 +457,14 @@ async fn main() -> std::io::Result<()> {
                 web::post().to(handlers::topics::toggle_topics),
             )
             .route(
+                "/api/reset",
+                web::post().to(handlers::topics::reset_all),
+            )
+            .route(
+                "/api/disconnect",
+                web::post().to(handlers::topics::disconnect),
+            )
+            .route(
                 "/api/stats/{topic}",
                 web::get().to(handlers::stats::get_topic_stats),
             )

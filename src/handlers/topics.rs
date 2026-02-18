@@ -2,6 +2,7 @@ use crate::kafka::admin;
 use crate::models::{
     AlertStatus, AvailableTopicsResponse, TopicSummary, TopicToggleRequest, TopicsResponse,
 };
+use crate::storage::{LagTimeSeries, TimeSeriesStorage};
 use crate::tracker::alerts::AlertEngine;
 use crate::tracker::stats::StatsEngine;
 use crate::TopicManager;
@@ -129,4 +130,43 @@ pub async fn toggle_topics(
     HttpResponse::Ok().json(serde_json::json!({
         "tracked": current
     }))
+}
+
+/// POST /api/reset — stop all consumers and clear all stats, alerts, and storage.
+/// Used when the dashboard needs a full reset (e.g., re-selecting topics with a new offset).
+pub async fn reset_all(
+    topic_manager: web::Data<Arc<TopicManager>>,
+    stats_engine: web::Data<StatsEngine>,
+    alert_engine: web::Data<AlertEngine>,
+    storage: web::Data<TimeSeriesStorage>,
+    lag_timeseries: web::Data<LagTimeSeries>,
+    tracked_topics: web::Data<Arc<RwLock<HashSet<String>>>>,
+) -> HttpResponse {
+    // Stop all consumers
+    topic_manager.clear().await;
+
+    // Clear tracked topics set
+    tracked_topics.write().await.clear();
+
+    // Clear all backend state
+    stats_engine.clear().await;
+    alert_engine.clear_alerts().await;
+    storage.clear().await;
+    lag_timeseries.clear().await;
+
+    log::info!("Dashboard reset: all consumers stopped, stats/alerts/storage cleared");
+    HttpResponse::Ok().json(serde_json::json!({ "status": "reset" }))
+}
+
+/// POST /api/disconnect — stop all consumers without clearing stats.
+/// Used to disconnect from the Kafka broker while preserving dashboard data.
+pub async fn disconnect(
+    topic_manager: web::Data<Arc<TopicManager>>,
+    tracked_topics: web::Data<Arc<RwLock<HashSet<String>>>>,
+) -> HttpResponse {
+    topic_manager.clear().await;
+    tracked_topics.write().await.clear();
+
+    log::info!("Disconnected: all consumers stopped");
+    HttpResponse::Ok().json(serde_json::json!({ "status": "disconnected" }))
 }

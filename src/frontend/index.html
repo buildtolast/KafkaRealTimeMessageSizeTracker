@@ -1328,6 +1328,7 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
       <span class="broker-label">broker://</span>
       <input type="text" class="broker-input" id="brokerInput" value="localhost:9092" placeholder="host:port">
       <button class="btn btn-primary" id="brokerBtn" onclick="updateBroker()">connect</button>
+      <button class="btn" id="brokerDisconnectBtn" style="display:none;background:var(--red);border-color:var(--red);color:var(--bg);font-weight:600" onclick="disconnectBroker()">disconnect</button>
       <button class="btn" style="font-size:10px;padding:3px 8px" onclick="toggleDiscover()">[discover]</button>
       <div class="discover-popover" id="discoverPopover"></div>
     </div>
@@ -1845,9 +1846,11 @@ function getCssVar(name) {
 
 /* ── WebSocket ── */
 let reconnectAttempts = 0;
+let userDisconnected = false;
 const MAX_RECONNECT_DELAY = 30000;
 
 function connectWebSocket() {
+  userDisconnected = false;
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.host}/ws/live`;
 
@@ -1891,6 +1894,7 @@ function connectWebSocket() {
 }
 
 function scheduleReconnect() {
+  if (userDisconnected) return;
   const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
   reconnectAttempts++;
   setTimeout(connectWebSocket, delay);
@@ -1905,6 +1909,24 @@ function updateConnectionStatus() {
   } else {
     dot.classList.remove('connected');
     label.textContent = 'disconnected';
+  }
+  updateBrokerButtons();
+}
+
+function updateConnStatus(connected) {
+  state.connected = connected;
+  updateConnectionStatus();
+}
+
+function updateBrokerButtons() {
+  const connectBtn = document.getElementById('brokerBtn');
+  const disconnectBtn = document.getElementById('brokerDisconnectBtn');
+  if (state.connected) {
+    connectBtn.style.display = 'none';
+    disconnectBtn.style.display = '';
+  } else {
+    connectBtn.style.display = '';
+    disconnectBtn.style.display = 'none';
   }
 }
 
@@ -2246,6 +2268,33 @@ function selectTopic(topic) {
   }, 50);
 }
 
+/* ── Dashboard State Reset ── */
+function resetDashboardState() {
+  if (state.ws) state.ws.close();
+  state.topics = [];
+  state.stats = {};
+  state.liveFeed = [];
+  state.alerts = [];
+  state.totalEvents = 0;
+  state.selectedTopic = null;
+  state.historyData = [];
+  state.globalHistoryData = {};
+  state.topicPeakStatus = {};
+  state.topicRecoveredAt = {};
+  feedTimeseries.length = 0;
+  alertTimeseries.length = 0;
+  feedBucket = { ts: 0, totalSize: 0, count: 0 };
+  alertBucket = { ts: 0, warnings: 0, criticals: 0 };
+  document.getElementById('statusTopics').textContent = '0';
+  document.getElementById('statusAlerts').textContent = '0';
+  document.getElementById('statusEvents').textContent = '0';
+  document.getElementById('topicCount').textContent = '(0)';
+  document.getElementById('alertCount').textContent = '(0)';
+  renderTopicList();
+  renderLiveFeed();
+  renderAlerts();
+}
+
 /* ── Broker Update ── */
 async function updateBroker() {
   const input = document.getElementById('brokerInput');
@@ -2259,22 +2308,22 @@ async function updateBroker() {
       body: JSON.stringify({ brokers }),
     });
     if (res.ok) {
-      if (state.ws) state.ws.close();
-      state.topics = [];
-      state.stats = {};
-      state.liveFeed = [];
-      state.alerts = [];
-      state.totalEvents = 0;
-      state.globalHistoryData = {};
-      feedTimeseries.length = 0;
-      alertTimeseries.length = 0;
-      feedBucket = { ts: 0, totalSize: 0, count: 0 };
-      alertBucket = { ts: 0, warnings: 0, criticals: 0 };
-      renderTopicList();
-      renderLiveFeed();
-      renderAlerts();
+      resetDashboardState();
       connectWebSocket();
+      updateConnStatus(true);
     }
+  } catch (e) { /* ignore */ }
+}
+
+/* ── Broker Disconnect ── */
+async function disconnectBroker() {
+  try {
+    userDisconnected = true;
+    await fetch('/api/disconnect', { method: 'POST' });
+    resetDashboardState();
+    updateConnStatus(false);
+    state.dashboardStarted = false;
+    localStorage.removeItem('sizetracker_tracked_topics');
   } catch (e) { /* ignore */ }
 }
 
@@ -3302,7 +3351,6 @@ async function confirmTopicSelection() {
   const allCheckboxes = document.querySelectorAll('#topicCheckboxList input[type="checkbox"]');
   const checkedBoxes = document.querySelectorAll('#topicCheckboxList input[type="checkbox"]:checked');
   const selected = Array.from(checkedBoxes).map(cb => cb.value);
-  const unselected = Array.from(allCheckboxes).filter(cb => !cb.checked).map(cb => cb.value);
 
   if (selected.length === 0) {
     // If none selected, treat as monitor all
@@ -3313,6 +3361,12 @@ async function confirmTopicSelection() {
   const startFrom = getStartPosition();
 
   try {
+    // Mid-session: full reset — stop all consumers and clear backend state
+    if (state.dashboardStarted) {
+      await fetch('/api/reset', { method: 'POST' });
+      resetDashboardState();
+    }
+
     // Enable selected topics
     const body = { topics: selected, enabled: true };
     if (startFrom && startFrom.type !== 'latest') {
@@ -3324,15 +3378,6 @@ async function confirmTopicSelection() {
       body: JSON.stringify(body),
     });
 
-    // Disable unchecked topics (only matters mid-session)
-    if (state.dashboardStarted && unselected.length > 0) {
-      await fetch('/api/topics/toggle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topics: unselected, enabled: false }),
-      });
-    }
-
     localStorage.setItem('sizetracker_tracked_topics', JSON.stringify(selected));
   } catch (e) { /* ignore */ }
 
@@ -3340,7 +3385,8 @@ async function confirmTopicSelection() {
   if (!state.dashboardStarted) {
     startDashboard();
   } else {
-    // Mid-session toggle: refresh topic list immediately
+    // Reconnect WebSocket and refresh after reset
+    connectWebSocket();
     refreshTopicsAfterToggle();
   }
 }
