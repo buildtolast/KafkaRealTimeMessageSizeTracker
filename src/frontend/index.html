@@ -2080,7 +2080,7 @@ function updateConnStatus(connected) {
 function updateBrokerButtons() {
   const connectBtn = document.getElementById('brokerBtn');
   const disconnectBtn = document.getElementById('brokerDisconnectBtn');
-  const actionBtns = ['btnTopics', 'btnBrowser', 'btnInsights', 'btnHealth'];
+  const actionBtns = ['btnTopics', 'btnBrowser', 'btnInsights', 'btnHealth', 'btnProgress'];
 
   if (state.connected) {
     connectBtn.style.display = 'none';
@@ -2104,6 +2104,7 @@ function updateBrokerButtons() {
     closeInsights();
     closeHealthReport();
     closeBrowser();
+    closeConsumerProgress();
   }
 }
 
