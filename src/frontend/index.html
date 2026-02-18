@@ -1146,6 +1146,54 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   white-space: nowrap;
   line-height: 1.6;
 }
+
+/* ── Health Report Overlay ── */
+.health-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  z-index: 9000;
+  display: none; flex-direction: column;
+}
+.health-overlay.active { display: flex; }
+.health-header {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 10px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.health-header .title { color: var(--cyan); font-weight: 600; font-size: 14px; }
+.health-body { flex: 1; overflow-y: auto; padding: 20px; max-width: 900px; margin: 0 auto; width: 100%; }
+.health-timestamp { color: var(--text-dim); font-size: 11px; }
+.health-summary-banner {
+  border-radius: var(--radius); padding: 16px 20px; margin-bottom: 24px;
+  font-size: 15px; font-weight: 600; line-height: 1.5;
+}
+.health-summary-banner.healthy { background: rgba(80,250,123,0.08); border: 1px solid var(--green); color: var(--green); }
+.health-summary-banner.warning { background: rgba(241,250,140,0.08); border: 1px solid var(--yellow); color: var(--yellow); }
+.health-summary-banner.critical { background: rgba(255,85,85,0.08); border: 1px solid var(--red); color: var(--red); }
+.health-section { margin-bottom: 24px; }
+.health-section-title {
+  color: var(--text-dim); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--border); padding-bottom: 6px;
+}
+.health-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 18px; margin-bottom: 10px;
+}
+.health-card.card-ok { border-left: 4px solid var(--green); }
+.health-card.card-warn { border-left: 4px solid var(--yellow); }
+.health-card.card-crit { border-left: 4px solid var(--red); }
+.health-card-topic { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.health-card-topic.ok { color: var(--green); }
+.health-card-topic.warn { color: var(--yellow); }
+.health-card-topic.crit { color: var(--red); }
+.health-card-status { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 3px; margin-left: 8px; font-weight: 600; }
+.health-card-status.ok { background: rgba(80,250,123,0.15); color: var(--green); }
+.health-card-status.warn { background: rgba(241,250,140,0.15); color: var(--yellow); }
+.health-card-status.crit { background: rgba(255,85,85,0.15); color: var(--red); }
+.health-card-desc { color: var(--text); font-size: 13px; line-height: 1.7; }
+.health-card-metrics { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
+.health-card-metric { font-size: 11px; color: var(--text-dim); }
+.health-card-metric .val { color: var(--text); font-weight: 600; margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -1176,6 +1224,7 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
     </div>
     <button class="btn" style="color:var(--magenta);border-color:var(--magenta-dim)" onclick="openBrowser()">[history_browser]</button>
     <button class="btn" style="color:var(--green);border-color:var(--green-dim)" onclick="openInsights()">[cluster_insights]</button>
+    <button class="btn" style="color:var(--cyan);border-color:var(--cyan)" onclick="openHealthReport()">[health_report]</button>
   </div>
 
   <!-- Main Content -->
@@ -1505,6 +1554,21 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
       <button class="btn" onclick="skipTopicPicker()">skip (monitor all)</button>
       <button class="btn btn-primary" onclick="confirmTopicSelection()">monitor selected</button>
     </div>
+  </div>
+</div>
+
+<!-- Health Report Overlay -->
+<div class="health-overlay" id="healthOverlay">
+  <div class="health-header">
+    <span class="prompt">&gt;</span>
+    <span class="title">health_report</span>
+    <span class="health-timestamp" id="healthTimestamp"></span>
+    <div style="flex:1"></div>
+    <button class="btn" onclick="refreshHealthReport()" style="font-size:11px">[refresh]</button>
+    <button class="btn" onclick="closeHealthReport()" style="font-size:11px">[close]</button>
+  </div>
+  <div class="health-body" id="healthBody">
+    <div style="color:var(--text-dim);text-align:center;margin-top:60px">generating health report...</div>
   </div>
 </div>
 
@@ -4040,6 +4104,211 @@ function truncateStr(str, maxLen) {
   const s = escapeHtml(str);
   if (s.length <= maxLen) return s;
   return s.slice(0, maxLen) + '...';
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   HEALTH REPORT
+   ═══════════════════════════════════════════════════════════════════ */
+
+let healthRefreshInterval = null;
+
+function openHealthReport() {
+  document.getElementById('healthOverlay').classList.add('active');
+  renderHealthReport();
+  if (healthRefreshInterval) clearInterval(healthRefreshInterval);
+  healthRefreshInterval = setInterval(renderHealthReport, 5000);
+}
+
+function closeHealthReport() {
+  document.getElementById('healthOverlay').classList.remove('active');
+  if (healthRefreshInterval) {
+    clearInterval(healthRefreshInterval);
+    healthRefreshInterval = null;
+  }
+}
+
+function refreshHealthReport() {
+  renderHealthReport();
+}
+
+function renderHealthReport() {
+  const body = document.getElementById('healthBody');
+  const tsEl = document.getElementById('healthTimestamp');
+  tsEl.textContent = 'updated ' + new Date().toLocaleTimeString('en-US', { hour12: false });
+
+  if (state.topics.length === 0 || Object.keys(state.stats).length === 0) {
+    body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">waiting for topic data...</div>';
+    return;
+  }
+
+  // Analyze each topic
+  const topicReports = [];
+  for (const topic of state.topics) {
+    const s = state.stats[topic];
+    if (!s) continue;
+    const warnThreshold = getTopicThreshold(topic);
+    const critThreshold = (state.alertConfigs[topic] && state.alertConfigs[topic].critical)
+      ? state.alertConfigs[topic].critical
+      : state.alertDefaults.critical;
+
+    const issues = [];
+    let severity = 'ok'; // ok, warn, crit
+
+    // Check average size vs thresholds
+    if (s.avg_bytes >= critThreshold) {
+      severity = 'crit';
+      issues.push(`Average message size (${formatBytes(s.avg_bytes)}) exceeds the critical threshold of ${formatBytes(critThreshold)}.`);
+    } else if (s.avg_bytes >= warnThreshold) {
+      severity = 'warn';
+      issues.push(`Average message size (${formatBytes(s.avg_bytes)}) exceeds the warning threshold of ${formatBytes(warnThreshold)}.`);
+    } else if (s.avg_bytes >= warnThreshold * 0.5) {
+      if (severity === 'ok') severity = 'warn';
+      issues.push(`Average message size (${formatBytes(s.avg_bytes)}) is approaching the warning threshold of ${formatBytes(warnThreshold)}.`);
+    }
+
+    // Check max size (spike detection)
+    if (s.max_bytes >= critThreshold) {
+      if (severity !== 'crit') severity = 'crit';
+      issues.push(`Largest message recorded (${formatBytes(s.max_bytes)}) exceeds the critical threshold — oversized messages are being produced.`);
+    } else if (s.max_bytes >= warnThreshold) {
+      if (severity === 'ok') severity = 'warn';
+      issues.push(`Largest message recorded (${formatBytes(s.max_bytes)}) exceeds the warning threshold.`);
+    }
+
+    // Check p99 for consistent large messages
+    if (s.p99 && s.p99 >= warnThreshold) {
+      if (severity === 'ok') severity = 'warn';
+      issues.push(`99th percentile size (${formatBytes(s.p99)}) is at or above the warning threshold — large messages are frequent.`);
+    }
+
+    // Check high spread (max >> avg indicates spikes)
+    if (s.avg_bytes > 0 && s.max_bytes > s.avg_bytes * 50) {
+      issues.push(`Message sizes have a very wide spread — the largest message is ${Math.round(s.max_bytes / s.avg_bytes)}x the average, suggesting occasional bursts or anomalies.`);
+    }
+
+    // Check recent alerts for this topic
+    const recentAlerts = state.alerts.filter(a => a.topic === topic);
+    const critAlerts = recentAlerts.filter(a => a.severity === 'critical');
+    const warnAlerts = recentAlerts.filter(a => a.severity === 'warning');
+    if (critAlerts.length > 0) {
+      if (severity !== 'crit') severity = 'crit';
+      issues.push(`${critAlerts.length} critical alert${critAlerts.length > 1 ? 's' : ''} triggered recently.`);
+    } else if (warnAlerts.length > 0) {
+      if (severity === 'ok') severity = 'warn';
+      issues.push(`${warnAlerts.length} warning alert${warnAlerts.length > 1 ? 's' : ''} triggered recently.`);
+    }
+
+    // If all good
+    if (issues.length === 0) {
+      issues.push('Message sizes are within normal range. No issues detected.');
+    }
+
+    topicReports.push({
+      topic,
+      severity,
+      issues,
+      stats: s,
+      warnThreshold,
+      critThreshold,
+    });
+  }
+
+  // Sort: critical first, then warning, then ok
+  const sevOrder = { crit: 0, warn: 1, ok: 2 };
+  topicReports.sort((a, b) => {
+    if (sevOrder[a.severity] !== sevOrder[b.severity]) return sevOrder[a.severity] - sevOrder[b.severity];
+    return (b.stats.avg_bytes || 0) - (a.stats.avg_bytes || 0);
+  });
+
+  // Compute overall status
+  const critCount = topicReports.filter(r => r.severity === 'crit').length;
+  const warnCount = topicReports.filter(r => r.severity === 'warn').length;
+  const okCount = topicReports.filter(r => r.severity === 'ok').length;
+
+  let overallSeverity = 'healthy';
+  let bannerText = '';
+  if (critCount > 0) {
+    overallSeverity = 'critical';
+    const critTopics = topicReports.filter(r => r.severity === 'crit').map(r => r.topic).join(', ');
+    bannerText = `${critCount} topic${critCount > 1 ? 's' : ''} in critical state: ${critTopics}. Immediate attention required.`;
+  } else if (warnCount > 0) {
+    overallSeverity = 'warning';
+    const warnTopics = topicReports.filter(r => r.severity === 'warn').map(r => r.topic).join(', ');
+    bannerText = `${warnCount} topic${warnCount > 1 ? 's' : ''} showing abnormal behavior: ${warnTopics}. Monitor closely.`;
+  } else {
+    bannerText = `All ${okCount} topic${okCount > 1 ? 's' : ''} are operating normally. No abnormalities detected.`;
+  }
+
+  let html = '';
+
+  // Banner
+  html += `<div class="health-summary-banner ${overallSeverity}">${escapeHtml(bannerText)}</div>`;
+
+  // Overview cards
+  html += '<div class="health-section">';
+  html += '<div class="health-section-title">Topic Status Overview</div>';
+
+  for (const r of topicReports) {
+    const cardClass = r.severity === 'crit' ? 'card-crit' : r.severity === 'warn' ? 'card-warn' : 'card-ok';
+    const topicClass = r.severity === 'crit' ? 'crit' : r.severity === 'warn' ? 'warn' : 'ok';
+    const statusLabel = r.severity === 'crit' ? 'CRITICAL' : r.severity === 'warn' ? 'WARNING' : 'HEALTHY';
+    const statusClass = r.severity === 'crit' ? 'crit' : r.severity === 'warn' ? 'warn' : 'ok';
+
+    html += `<div class="health-card ${cardClass}">`;
+    html += `<div class="health-card-topic ${topicClass}">${escapeHtml(r.topic)}<span class="health-card-status ${statusClass}">${statusLabel}</span></div>`;
+    html += '<div class="health-card-desc">';
+    for (const issue of r.issues) {
+      html += `${escapeHtml(issue)}<br>`;
+    }
+    html += '</div>';
+    html += '<div class="health-card-metrics">';
+    html += `<div class="health-card-metric">Avg Size<span class="val">${formatBytes(r.stats.avg_bytes)}</span></div>`;
+    html += `<div class="health-card-metric">Max Size<span class="val">${formatBytes(r.stats.max_bytes)}</span></div>`;
+    html += `<div class="health-card-metric">Msg/sec<span class="val">${formatRate(r.stats.messages_per_sec)}</span></div>`;
+    html += `<div class="health-card-metric">Messages<span class="val">${r.stats.message_count.toLocaleString()}</span></div>`;
+    html += `<div class="health-card-metric">Warn Threshold<span class="val">${formatBytes(r.warnThreshold)}</span></div>`;
+    html += `<div class="health-card-metric">Crit Threshold<span class="val">${formatBytes(r.critThreshold)}</span></div>`;
+    html += '</div>';
+    html += '</div>';
+  }
+
+  html += '</div>';
+
+  // Alert summary section
+  if (state.alerts.length > 0) {
+    html += '<div class="health-section">';
+    html += '<div class="health-section-title">Recent Alert Activity</div>';
+
+    // Group alerts by topic
+    const alertsByTopic = {};
+    for (const a of state.alerts) {
+      if (!alertsByTopic[a.topic]) alertsByTopic[a.topic] = { warnings: 0, criticals: 0, latest: null };
+      if (a.severity === 'critical') alertsByTopic[a.topic].criticals++;
+      else alertsByTopic[a.topic].warnings++;
+      if (!alertsByTopic[a.topic].latest || new Date(a.timestamp) > new Date(alertsByTopic[a.topic].latest)) {
+        alertsByTopic[a.topic].latest = a.timestamp;
+      }
+    }
+
+    html += '<table class="insights-table">';
+    html += '<thead><tr><th>Topic</th><th>Warnings</th><th>Criticals</th><th>Last Alert</th></tr></thead>';
+    html += '<tbody>';
+    for (const [topic, info] of Object.entries(alertsByTopic).sort((a, b) => b[1].criticals - a[1].criticals)) {
+      const warnColor = info.warnings > 0 ? 'var(--yellow)' : 'var(--text-dim)';
+      const critColor = info.criticals > 0 ? 'var(--red)' : 'var(--text-dim)';
+      const timeStr = info.latest ? formatTime(info.latest) : '-';
+      html += `<tr>
+        <td style="color:var(--magenta);font-weight:600">${escapeHtml(topic)}</td>
+        <td style="color:${warnColor}">${info.warnings}</td>
+        <td style="color:${critColor}">${info.criticals}</td>
+        <td>${timeStr}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    html += '</div>';
+  }
+
+  body.innerHTML = html;
 }
 
 // Start

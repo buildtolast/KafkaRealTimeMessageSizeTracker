@@ -18,6 +18,7 @@ Real-time Kafka message size monitoring dashboard with configurable alerts, hist
 - **Enhanced alerts** — time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery** — discover cluster brokers via metadata API, popover UI with click-to-connect
 - **Cluster insights** — full-screen overlay showing brokers, topics, partitions, consumer lag, throughput per topic, and recommendations
+- **Health report** — non-technical summary overlay showing per-topic health status with plain-English descriptions of abnormalities, auto-refreshes every 5 seconds
 - **MongoDB persistence** — optional persistence of oversized messages and alerts to MongoDB, with a dedicated browser tab for querying persisted data
 - **3 UI themes** — Terminal/Chalk (default), Tokyo Night, Dracula, with theme switcher and localStorage persistence
 
@@ -112,6 +113,7 @@ The dashboard uses a vertical sidebar (280px left) with expandable topic cards a
 | **Topic Picker** | Startup overlay to select which topics to monitor (persisted to localStorage) |
 | **Broker Discovery** | Popover showing discovered cluster brokers with click-to-connect |
 | **Cluster Insights** | Full-screen overlay with broker table, topic/partition details, consumer lag bars, throughput metrics, and recommendation cards |
+| **Health Report** | Full-screen overlay with per-topic health cards, plain-English abnormality descriptions, alert summary table, auto-refresh (5s) |
 | **History Browser** | Full-screen overlay with 3 tabs: message browsing (by offset/timestamp/preset), global snapshot (time-travel), and persisted data (MongoDB) |
 | **Status Bar** | WebSocket status, topic count, event count, alert count |
 

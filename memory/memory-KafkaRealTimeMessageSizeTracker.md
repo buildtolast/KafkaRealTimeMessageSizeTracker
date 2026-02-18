@@ -119,6 +119,7 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 - **Enhanced alerts**: Time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery**: Popover UI with click-to-connect
 - **Cluster insights**: Full-screen overlay with tables, lag bars, recommendation cards, auto-refresh every 5s while open (real-time consumer lag), lag time-series chart (per-topic + total, crosshair hover)
+- **Health report**: Full-screen overlay with per-topic health cards, plain-English abnormality descriptions (threshold breaches, spike detection, p99 analysis, spread analysis, alert activity), alert summary table, auto-refresh every 5s, severity-sorted (critical first)
 - **History Browser**: Full-screen overlay with 3 tabs (messages browse + global snapshot + persisted data), message detail sidebar, pagination
 - **Historical play presets**: `?preset=beginning|1h|1d|latest` param for quick browsing
 - **Chart**: Lightweight Canvas-based line chart (no external lib), auto-scaling, cyan line (no area fill)
