@@ -167,6 +167,8 @@ html[data-theme="light"] body::after { display: none; }
   align-items: center;
   gap: 8px;
 }
+.header-brand { display: flex; flex-direction: column; gap: 1px; }
+.app-subtitle { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; font-weight: 400; opacity: 0.8; }
 
 .prompt { color: var(--green); font-weight: 700; }
 .title-text { color: var(--cyan); font-weight: 600; font-size: 15px; }
@@ -430,7 +432,7 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   50% { box-shadow: 0 0 10px rgba(139,233,253,0.15); }
 }
 
-.topic-name { color: var(--orange); font-weight: 700; font-size: 14px; margin-bottom: 6px; letter-spacing: 0.3px; }
+.topic-name { font-weight: 700; font-size: 14px; margin-bottom: 6px; letter-spacing: 0.3px; }
 .topic-metric {
   display: flex;
   justify-content: space-between;
@@ -1306,8 +1308,10 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   <div class="header">
     <div class="header-title">
       <span class="prompt">&gt;</span>
-      <span class="title-text">KafkaMessageSizeTracker</span>
-      <span class="cursor"></span>
+      <div class="header-brand">
+        <div><span class="title-text">KafkaMessageSizeTracker</span><span class="cursor"></span></div>
+        <div class="app-subtitle">Real-time message size monitoring &amp; alerting</div>
+      </div>
     </div>
     <div class="conn-status">
       <span class="conn-dot" id="connDot"></span>
@@ -1327,6 +1331,7 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
       <button class="btn" style="font-size:10px;padding:3px 8px" onclick="toggleDiscover()">[discover]</button>
       <div class="discover-popover" id="discoverPopover"></div>
     </div>
+    <button class="btn" style="color:var(--yellow);border-color:var(--yellow-dim)" onclick="reopenTopicPicker()">[topics]</button>
     <button class="btn" style="color:var(--magenta);border-color:var(--magenta-dim)" onclick="openBrowser()">[history_browser]</button>
     <button class="btn" style="color:var(--green);border-color:var(--green-dim)" onclick="openInsights()">[cluster_insights]</button>
     <button class="btn" style="color:var(--cyan);border-color:var(--cyan)" onclick="openHealthReport()">[health_report]</button>
@@ -1755,6 +1760,7 @@ const state = {
   alertConfigs: {},  // per-topic: { topic: { warning, critical } }
   topicPeakStatus: {},  // per-topic: 'critical' | 'warning' — tracks worst seen for recovered state
   topicRecoveredAt: {},  // per-topic: timestamp when topic entered recovered state
+  dashboardStarted: false,
 };
 
 const MAX_FEED = 200;
@@ -2057,10 +2063,15 @@ function renderTopicList() {
     return a.localeCompare(b);
   });
 
+  // Build a stable color map: each topic gets a fixed color from the palette
+  const topicColorMap = {};
+  state.topics.forEach((t, i) => { topicColorMap[t] = GLOBAL_CHART_COLORS[i % GLOBAL_CHART_COLORS.length]; });
+
   let html = '';
   for (const topic of sortedTopics) {
     const s = state.stats[topic];
     const selected = state.selectedTopic === topic ? ' selected' : '';
+    const nameColor = topicColorMap[topic] || GLOBAL_CHART_COLORS[0];
     let alertClass = '';
     let priorityClass = '';
     let statusHtml = '';
@@ -2086,7 +2097,7 @@ function renderTopicList() {
 
       html += `<div class="topic-card${selected}${alertClass}${priorityClass}" onclick="selectTopic('${topic}')">
         ${statusHtml}
-        <div class="topic-name">${topic}</div>
+        <div class="topic-name" style="color:${nameColor}">${topic}</div>
         <div class="topic-metric"><span>msg/s</span><span class="value">${formatRate(s.messages_per_sec)}</span></div>
         <div class="topic-metric"><span>avg</span><span class="value ${sizeClass(recentAvg, threshold)}">${formatBytes(s.avg_bytes)}</span></div>
         <div class="topic-metric"><span>max</span><span class="value ${sizeClass(s.max_bytes, threshold)}">${formatBytes(s.max_bytes)}</span></div>
@@ -2102,7 +2113,7 @@ function renderTopicList() {
     } else {
       html += `<div class="topic-card${selected}" onclick="selectTopic('${topic}')">
         <span class="topic-status unknown">--</span>
-        <div class="topic-name">${topic}</div>
+        <div class="topic-name" style="color:${nameColor}">${topic}</div>
         <div class="topic-metric"><span>waiting for data...</span></div>
       </div>`;
     }
@@ -3288,8 +3299,10 @@ function getStartPosition() {
 }
 
 async function confirmTopicSelection() {
-  const checkboxes = document.querySelectorAll('#topicCheckboxList input[type="checkbox"]:checked');
-  const selected = Array.from(checkboxes).map(cb => cb.value);
+  const allCheckboxes = document.querySelectorAll('#topicCheckboxList input[type="checkbox"]');
+  const checkedBoxes = document.querySelectorAll('#topicCheckboxList input[type="checkbox"]:checked');
+  const selected = Array.from(checkedBoxes).map(cb => cb.value);
+  const unselected = Array.from(allCheckboxes).filter(cb => !cb.checked).map(cb => cb.value);
 
   if (selected.length === 0) {
     // If none selected, treat as monitor all
@@ -3300,6 +3313,7 @@ async function confirmTopicSelection() {
   const startFrom = getStartPosition();
 
   try {
+    // Enable selected topics
     const body = { topics: selected, enabled: true };
     if (startFrom && startFrom.type !== 'latest') {
       body.start_from = startFrom;
@@ -3309,17 +3323,58 @@ async function confirmTopicSelection() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+
+    // Disable unchecked topics (only matters mid-session)
+    if (state.dashboardStarted && unselected.length > 0) {
+      await fetch('/api/topics/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topics: unselected, enabled: false }),
+      });
+    }
+
     localStorage.setItem('sizetracker_tracked_topics', JSON.stringify(selected));
   } catch (e) { /* ignore */ }
 
   document.getElementById('topicPickerOverlay').classList.add('hidden');
-  startDashboard();
+  if (!state.dashboardStarted) {
+    startDashboard();
+  } else {
+    // Mid-session toggle: refresh topic list immediately
+    refreshTopicsAfterToggle();
+  }
 }
 
 function skipTopicPicker() {
   localStorage.removeItem('sizetracker_tracked_topics');
   document.getElementById('topicPickerOverlay').classList.add('hidden');
-  startDashboard();
+  if (!state.dashboardStarted) startDashboard();
+}
+
+// Refresh topic list after mid-session toggle
+async function refreshTopicsAfterToggle() {
+  try {
+    const res = await fetch('/api/topics');
+    if (res.ok) {
+      const data = await res.json();
+      state.topics = data.topics.map(t => t.name);
+      for (const t of data.topics) {
+        if (t.stats) state.stats[t.name] = t.stats;
+      }
+      document.getElementById('statusTopics').textContent = state.topics.length;
+      document.getElementById('topicCount').textContent = `(${state.topics.length})`;
+      renderTopicList();
+      // Select first topic if current selection was removed
+      if (state.selectedTopic && !state.topics.includes(state.selectedTopic) && state.topics.length > 0) {
+        selectTopic(state.topics[0]);
+      }
+    }
+  } catch (e) { /* ignore */ }
+}
+
+// Re-open topic picker mid-session for toggling topics on/off
+function reopenTopicPicker() {
+  showTopicPicker();
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -3733,6 +3788,7 @@ function insightCard(label, value, sub) {
    ═══════════════════════════════════════════════════════════════════ */
 
 async function startDashboard() {
+  state.dashboardStarted = true;
   // Fetch initial topics
   try {
     const res = await fetch('/api/topics');

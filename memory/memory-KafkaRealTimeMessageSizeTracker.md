@@ -116,9 +116,10 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - **Font**: JetBrains Mono / Fira Code / monospace
 - **Effects**: scanline overlay (disabled in light theme), CRT text glow (text-shadow), blinking cursor
 - **Layout**: Resizable panels — vertical sidebar (default 280px, drag-to-resize) + 2 rows of 2 panels + global panel. All dividers (sidebar/columns/rows) are draggable via `.resize-handle-v`/`.resize-handle-h` with cyan highlight on hover
-- **Topic selection**: Startup picker overlay with "Start From" position selector (Latest/Beginning/Timestamp/Offset), localStorage persistence for selected topics
-- **Topic sorting**: Sidebar topics sorted by avg_bytes descending (largest first), color-coded borders: green (healthy), yellow (warning), red blinking (critical/`priority-alert`)
-- **Topic names**: White/bright contrasting color with subtle text-shadow glow
+- **App subtitle**: "Real-time message size monitoring & alerting" shown below app name in header
+- **Topic selection**: Startup picker overlay with "Start From" position selector (Latest/Beginning/Timestamp/Offset), localStorage persistence for selected topics. Re-openable mid-session via `[topics]` header button for toggling topics on/off without restarting dashboard
+- **Topic sorting**: Sidebar topics sorted by recent avg descending (rate-window based), 4-state lifecycle: Critical → Warning → Recovered (30s timer) → OK, color-coded borders: green (ok), yellow (warning), red blinking step-end (critical/`priority-alert`), cyan pulse (recovered)
+- **Topic names**: Per-topic unique colors from `GLOBAL_CHART_COLORS` palette, assigned by stable topic index
 - **Enhanced alerts**: Time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery**: Popover UI with click-to-connect
 - **Cluster insights**: Full-screen overlay with tables, lag bars (top panel), recommendation cards, auto-refresh every 5s while open (real-time consumer lag), lag time-series chart (per-topic + total, crosshair hover)

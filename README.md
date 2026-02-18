@@ -13,8 +13,8 @@ Real-time Kafka message size monitoring dashboard with configurable alerts, hist
 - **WebSocket streaming** with rate limiting (50 events/sec), topic filtering, and auto-reconnect
 - **Auto-discovery** of new Kafka topics every 30 seconds
 - **Hot-swappable broker** configuration without restart
-- **Topic selection with replay** — startup picker overlay to choose which topics to monitor (with localStorage persistence) and select a start position (Latest, Beginning, Timestamp, or specific Offset) for replaying historical data through the stats engine
-- **Size-based topic sorting** — sidebar topics sorted by average message size (largest first) with red blinking border for topics exceeding alert thresholds
+- **Topic selection with replay** — startup picker overlay to choose which topics to monitor (with localStorage persistence) and select a start position (Latest, Beginning, Timestamp, or specific Offset) for replaying historical data through the stats engine. Re-openable mid-session via `[topics]` header button for toggling topics on/off
+- **4-state topic lifecycle** — sidebar topics sorted by recent average message size with 4-state lifecycle: Critical → Warning → Recovered (30s cooldown) → OK, each with unique per-topic colors from a palette
 - **Enhanced alerts** — time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery** — discover cluster brokers via metadata API, popover UI with click-to-connect
 - **Cluster insights** — full-screen overlay showing brokers, topics, partitions, consumer lag, throughput per topic, and recommendations
@@ -111,7 +111,7 @@ The dashboard uses a vertical sidebar (280px left) with expandable topic cards a
 | **Alerts** | Active/recent alerts with severity indicators, time window filter (5m/15m/1h/all) |
 | **History Chart** | Canvas-based time-series line chart with selectable range (1h/6h/24h/7d) |
 | **Global History** | Spanning bottom panel for global snapshot timeline |
-| **Topic Picker** | Startup overlay to select topics + start position (Latest/Beginning/Timestamp/Offset), persisted to localStorage |
+| **Topic Picker** | Overlay to select topics + start position (Latest/Beginning/Timestamp/Offset), persisted to localStorage, re-openable via `[topics]` button |
 | **Broker Discovery** | Popover showing discovered cluster brokers with click-to-connect |
 | **Cluster Insights** | Full-screen overlay with broker table, topic/partition details, consumer lag bars, throughput metrics, and recommendation cards |
 | **Health Report** | Full-screen overlay with per-topic health cards, plain-English abnormality descriptions, alert summary table, auto-refresh (5s) |
