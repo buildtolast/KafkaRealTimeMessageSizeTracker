@@ -1946,6 +1946,14 @@ let alertChartMode = 'live';
 let feedChartTypeMode = 'line';
 let alertChartTypeMode = 'line';
 
+/* ── Tracked Topics Helper ── */
+function getTrackedTopics() {
+  try {
+    const saved = localStorage.getItem('sizetracker_tracked_topics');
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) { return []; }
+}
+
 /* ── Theme ── */
 function setTheme(theme) {
   if (theme === 'chalk') {
@@ -2110,6 +2118,10 @@ function updateBrokerButtons() {
 
 /* ── Event Handlers ── */
 function handleSizeEvent(event) {
+  // Ignore events from untracked topics
+  const tracked = getTrackedTopics();
+  if (tracked.length > 0 && !tracked.includes(event.topic)) return;
+
   state.totalEvents++;
   document.getElementById('statusEvents').textContent = state.totalEvents.toLocaleString();
 
@@ -2140,6 +2152,10 @@ function handleSizeEvent(event) {
 function handleStatsUpdate(stats) {
   state.stats[stats.topic] = stats;
 
+  // Only add topics that are being tracked (ignore unmonitored topics)
+  const tracked = getTrackedTopics();
+  if (tracked.length > 0 && !tracked.includes(stats.topic)) return;
+
   // Update topic in list
   if (!state.topics.includes(stats.topic)) {
     state.topics.push(stats.topic);
@@ -2157,6 +2173,10 @@ function handleStatsUpdate(stats) {
 }
 
 function handleAlert(alert) {
+  // Ignore alerts from untracked topics
+  const tracked = getTrackedTopics();
+  if (tracked.length > 0 && !tracked.includes(alert.topic)) return;
+
   state.alerts.unshift(alert);
   if (state.alerts.length > MAX_ALERTS_DISPLAY) state.alerts.pop();
   document.getElementById('statusAlerts').textContent = state.alerts.length;
@@ -3704,9 +3724,9 @@ let insightsRefreshInterval = null;
 function openInsights() {
   document.getElementById('insightsOverlay').classList.add('active');
   fetchInsights();
-  // Auto-refresh consumer lag every 5 seconds while overlay is open
+  // Auto-refresh consumer lag every 15 seconds while overlay is open
   if (insightsRefreshInterval) clearInterval(insightsRefreshInterval);
-  insightsRefreshInterval = setInterval(fetchInsights, 5000);
+  insightsRefreshInterval = setInterval(fetchInsights, 15000);
 }
 
 function closeInsights() {
@@ -4149,10 +4169,10 @@ async function startDashboard() {
     if (state.selectedTopic) fetchHistory();
   }, 60000);
 
-  // Periodic global history refresh (every 15s for responsiveness)
+  // Periodic global history refresh (every 60s — relaxed for remote brokers)
   setInterval(() => {
     fetchGlobalHistory();
-  }, 15000);
+  }, 60000);
 
   // Initial global history fetch: retry aggressively until data appears
   setTimeout(fetchGlobalHistory, 2000);
@@ -4743,7 +4763,7 @@ function openHealthReport() {
   document.getElementById('healthOverlay').classList.add('active');
   renderHealthReport();
   if (healthRefreshInterval) clearInterval(healthRefreshInterval);
-  healthRefreshInterval = setInterval(renderHealthReport, 5000);
+  healthRefreshInterval = setInterval(renderHealthReport, 15000);
 }
 
 function closeHealthReport() {
@@ -4772,10 +4792,10 @@ function setHealthRange(range, btn) {
   if (range === 'live') {
     state.healthHistoryData = {};
     renderHealthReport();
-    healthRefreshInterval = setInterval(renderHealthReport, 5000);
+    healthRefreshInterval = setInterval(renderHealthReport, 15000);
   } else {
     fetchHealthHistory(range);
-    healthRefreshInterval = setInterval(() => fetchHealthHistory(range), 30000);
+    healthRefreshInterval = setInterval(() => fetchHealthHistory(range), 60000);
   }
 }
 
@@ -5096,7 +5116,7 @@ function openConsumerProgress() {
   document.getElementById('progressOverlay').classList.add('active');
   refreshConsumerProgress();
   if (progressRefreshInterval) clearInterval(progressRefreshInterval);
-  progressRefreshInterval = setInterval(refreshConsumerProgress, 5000);
+  progressRefreshInterval = setInterval(refreshConsumerProgress, 15000);
 }
 
 function closeConsumerProgress() {

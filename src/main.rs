@@ -374,12 +374,12 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    // Background task: auto-discover and subscribe to topics (every 30 seconds)
+    // Background task: auto-discover and subscribe to topics (every 60 seconds)
     let tm_for_discover = topic_manager.clone();
     let admin_for_discover = admin_consumer.clone();
     let tracked_for_discover = tracked_topics.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         loop {
             interval.tick().await;
             let consumer = admin_for_discover.clone();
@@ -408,13 +408,13 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    // Background task: consumer lag collector (every 10 seconds)
+    // Background task: consumer lag collector (every 30 seconds)
     let admin_for_lag = admin_consumer.clone();
     let lag_ts_for_collector = lag_timeseries.clone();
     let progress_for_lag = progress_tracker.clone();
     let tracked_for_lag = tracked_topics.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
         loop {
             interval.tick().await;
             // Only fetch lag for tracked topics (huge speedup on remote brokers)

@@ -13,55 +13,71 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
-/// GET /api/topics — list all topics with summary stats and alert status.
+/// GET /api/topics — list tracked topics with summary stats and alert status.
+/// When topics are being tracked (user made a selection), only returns those topics
+/// using stats from the StatsEngine — no Kafka metadata fetch needed.
+/// Falls back to fetching all topics from Kafka only if no topics are tracked.
 pub async fn get_topics(
     admin_consumer: web::Data<Arc<Mutex<AdminConsumer>>>,
     stats_engine: web::Data<StatsEngine>,
     alert_engine: web::Data<AlertEngine>,
+    tracked_topics: web::Data<Arc<RwLock<HashSet<String>>>>,
 ) -> HttpResponse {
-    let consumer = admin_consumer.get_ref().clone();
-
-    let topics = web::block(move || {
-        let consumer = consumer.blocking_lock();
-        admin::list_topics(&consumer)
-    })
-    .await;
-
-    match topics {
-        Ok(Ok(topic_names)) => {
-            let mut summaries = Vec::with_capacity(topic_names.len());
-            for name in topic_names {
-                let stats = stats_engine.get_stats(&name).await;
-                let alert_config = alert_engine.get_config(&name).await;
-
-                let alert_status = match &stats {
-                    Some(s) => {
-                        if s.max_bytes >= alert_config.critical_threshold {
-                            AlertStatus::Critical
-                        } else if s.max_bytes >= alert_config.warning_threshold {
-                            AlertStatus::Warning
-                        } else {
-                            AlertStatus::Healthy
-                        }
-                    }
-                    None => AlertStatus::Unknown,
-                };
-
-                summaries.push(TopicSummary {
-                    name,
-                    stats,
-                    alert_status,
-                });
+    let tracked = tracked_topics.read().await;
+    let topic_names: Vec<String> = if tracked.is_empty() {
+        // No selection — fall back to Kafka metadata (backward-compatible)
+        drop(tracked);
+        let consumer = admin_consumer.get_ref().clone();
+        let result = web::block(move || {
+            let consumer = consumer.blocking_lock();
+            admin::list_topics(&consumer)
+        })
+        .await;
+        match result {
+            Ok(Ok(names)) => names,
+            Ok(Err(e)) => {
+                return HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": format!("Failed to list topics: {}", e)
+                }));
             }
-            HttpResponse::Ok().json(TopicsResponse { topics: summaries })
+            Err(e) => {
+                return HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": format!("Blocking error: {}", e)
+                }));
+            }
         }
-        Ok(Err(e)) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Failed to list topics: {}", e)
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Blocking error: {}", e)
-        })),
+    } else {
+        // Topics are tracked — return only those, no Kafka call needed
+        let names: Vec<String> = tracked.iter().cloned().collect();
+        drop(tracked);
+        names
+    };
+
+    let mut summaries = Vec::with_capacity(topic_names.len());
+    for name in topic_names {
+        let stats = stats_engine.get_stats(&name).await;
+        let alert_config = alert_engine.get_config(&name).await;
+
+        let alert_status = match &stats {
+            Some(s) => {
+                if s.max_bytes >= alert_config.critical_threshold {
+                    AlertStatus::Critical
+                } else if s.max_bytes >= alert_config.warning_threshold {
+                    AlertStatus::Warning
+                } else {
+                    AlertStatus::Healthy
+                }
+            }
+            None => AlertStatus::Unknown,
+        };
+
+        summaries.push(TopicSummary {
+            name,
+            stats,
+            alert_status,
+        });
     }
+    HttpResponse::Ok().json(TopicsResponse { topics: summaries })
 }
 
 /// GET /api/topics/available — list all Kafka topics + currently tracked ones.
