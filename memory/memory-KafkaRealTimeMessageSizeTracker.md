@@ -120,9 +120,11 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 - **Cluster insights**: Full-screen overlay with tables, lag bars, recommendation cards
 - **History Browser**: Full-screen overlay with 3 tabs (messages browse + global snapshot + persisted data), message detail sidebar, pagination
 - **Historical play presets**: `?preset=beginning|1h|1d|latest` param for quick browsing
-- **Chart**: Lightweight Canvas-based line chart (no external lib), auto-scaling, cyan line + fill
+- **Chart**: Lightweight Canvas-based line chart (no external lib), auto-scaling, cyan line (no area fill)
+- **Chart type selector**: All mini-charts have a line/area/bar toggle (`.chart-type-toggle`). State: `feedChartTypeMode` and `alertChartTypeMode` (default: 'line')
 - **Live feed mini-chart**: Dual-axis timeseries (avg size cyan line + msg/s magenta dashed line), per-second rolling buffer (120 pts), crosshair hover with tooltip. Switchable modes: live | 1h | 6h | 24h | 7d — historical mode shows multi-topic colored lines from `/api/history/{topic}?range=...`
-- **Alerts mini-chart**: Stacked bar chart (warnings yellow + criticals red), per-10-second buckets, hover with tooltip. Switchable modes: live | 1h | 6h | all — historical mode aggregates `state.alerts` into time buckets from `/api/alerts?limit=1000`
+- **Alerts mini-chart**: Dual-line chart (warnings yellow + criticals red), per-10-second buckets, crosshair hover with tooltip. Switchable modes: live | 1h | 6h | all — historical mode aggregates `state.alerts` into time buckets from `/api/alerts?limit=1000`. Bar mode available via chart type toggle
+- **Global history chart**: Dual-axis per topic — left Y: avg_bytes (solid colored lines), right Y: message_count (dashed colored lines). Crosshair hover with per-topic tooltip showing both size and count. Legend indicates solid=size, dashed=count
 - **WebSocket**: auto-reconnect with exponential backoff
 
 ## MongoDB Persistence

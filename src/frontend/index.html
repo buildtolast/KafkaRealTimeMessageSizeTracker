@@ -560,6 +560,27 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
 .mini-range-btn:hover { color: var(--text); border-color: var(--text-dim); }
 .mini-range-btn.active { color: var(--cyan); border-color: var(--cyan); background: rgba(139,233,253,0.08); }
 
+.chart-type-toggle {
+  display: flex;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-left: 1px solid var(--border);
+}
+.chart-type-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 9px;
+  padding: 1px 5px;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 2px;
+  transition: all 0.15s;
+}
+.chart-type-btn:hover { color: var(--text); border-color: var(--text-dim); }
+.chart-type-btn.active { color: var(--green); border-color: var(--green); background: rgba(80,250,123,0.08); }
+
 /* ── Stats Detail ── */
 .stats-empty {
   color: var(--text-dim);
@@ -1129,6 +1150,11 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
               <button class="mini-range-btn" onclick="setFeedChartMode('24h',this)">24h</button>
               <button class="mini-range-btn" onclick="setFeedChartMode('7d',this)">7d</button>
             </div>
+            <div class="chart-type-toggle" id="feedChartType">
+              <button class="chart-type-btn active" onclick="setChartType('feed','line',this)">line</button>
+              <button class="chart-type-btn" onclick="setChartType('feed','area',this)">area</button>
+              <button class="chart-type-btn" onclick="setChartType('feed','bar',this)">bar</button>
+            </div>
           </div>
           <div class="mini-chart-legend" id="feedChartLegend">
             <span class="legend-size">avg size</span>
@@ -1183,6 +1209,11 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
               <button class="mini-range-btn" onclick="setAlertChartMode('6h',this)">6h</button>
               <button class="mini-range-btn" onclick="setAlertChartMode('all',this)">all</button>
             </div>
+            <div class="chart-type-toggle" id="alertChartType">
+              <button class="chart-type-btn active" onclick="setChartType('alert','line',this)">line</button>
+              <button class="chart-type-btn" onclick="setChartType('alert','area',this)">area</button>
+              <button class="chart-type-btn" onclick="setChartType('alert','bar',this)">bar</button>
+            </div>
           </div>
           <div class="mini-chart-wrap" id="alertChartWrap" style="height:80px;">
             <canvas id="alertChart"></canvas>
@@ -1231,8 +1262,9 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
         </div>
         <div class="panel-body" id="globalHistoryPanel" style="padding:4px 14px">
           <div id="globalChartLegend" class="global-chart-legend"></div>
-          <div class="chart-container" id="globalChartContainer" style="height:calc(100% - 24px);min-height:80px">
+          <div class="chart-container" id="globalChartContainer" style="height:calc(100% - 24px);min-height:80px;position:relative;cursor:crosshair">
             <canvas id="globalHistoryChart"></canvas>
+            <div class="mini-chart-tooltip" id="globalChartTooltip"></div>
           </div>
         </div>
       </div>
@@ -1469,6 +1501,10 @@ let alertBucket = { ts: 0, warnings: 0, criticals: 0 };
 let feedChartMode = 'live';
 let feedHistoryData = {}; // { topic: [ { timestamp, avg_bytes, ... } ] } for historical mode
 let alertChartMode = 'live';
+
+// Chart type state: 'line' | 'area' | 'bar'
+let feedChartTypeMode = 'line';
+let alertChartTypeMode = 'line';
 
 /* ── Theme ── */
 function setTheme(theme) {
@@ -1968,18 +2004,8 @@ function renderChart() {
     ctx.fillText(formatTime(data[idx].timestamp), xScale(idx), H - 8);
   }
 
-  // Fill
-  const cyanColor = getCssVar('--cyan');
-  ctx.beginPath();
-  ctx.moveTo(xScale(0), yScale(values[0]));
-  for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScale(values[i]));
-  ctx.lineTo(xScale(data.length - 1), pad.top + chartH);
-  ctx.lineTo(xScale(0), pad.top + chartH);
-  ctx.closePath();
-  ctx.fillStyle = cyanColor.replace(')', ', 0.08)').replace('rgb', 'rgba');
-  ctx.fill();
-
   // Line
+  const cyanColor = getCssVar('--cyan');
   ctx.beginPath();
   ctx.moveTo(xScale(0), yScale(values[0]));
   for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScale(values[i]));
@@ -2039,9 +2065,9 @@ function renderGlobalChart() {
   // Collect all topic data
   const topicEntries = state.topics.filter(t => state.globalHistoryData[t] && state.globalHistoryData[t].length >= 2);
 
-  // Render legend
+  // Render legend: solid line = avg size, dashed line = msg count
   const legendEl = document.getElementById('globalChartLegend');
-  let legendHtml = '';
+  let legendHtml = '<span style="font-size:9px;color:var(--text-dim);margin-right:8px">── size</span><span style="font-size:9px;color:var(--text-dim);margin-right:12px">╌╌ count</span>';
   topicEntries.forEach((topic, idx) => {
     const color = GLOBAL_CHART_COLORS[idx % GLOBAL_CHART_COLORS.length];
     legendHtml += `<div class="legend-item"><span class="legend-dot" style="background:${color}"></span>${topic}</div>`;
@@ -2056,28 +2082,32 @@ function renderGlobalChart() {
     return;
   }
 
-  const pad = { top: 10, right: 15, bottom: 22, left: 55 };
+  const pad = { top: 10, right: 55, bottom: 22, left: 55 };
   const chartW = W - pad.left - pad.right;
   const chartH = H - pad.top - pad.bottom;
 
-  // Global Y range across all topics
-  let yMin = Infinity, yMax = -Infinity;
+  // Global Y ranges across all topics (left = size, right = count)
+  let sMin = Infinity, sMax = -Infinity;
+  let cMin = 0, cMax = -Infinity;
   let maxLen = 0;
   for (const topic of topicEntries) {
     const data = state.globalHistoryData[topic];
     for (const d of data) {
-      if (d.avg_bytes < yMin) yMin = d.avg_bytes;
-      if (d.avg_bytes > yMax) yMax = d.avg_bytes;
+      if (d.avg_bytes < sMin) sMin = d.avg_bytes;
+      if (d.avg_bytes > sMax) sMax = d.avg_bytes;
+      if (d.message_count > cMax) cMax = d.message_count;
     }
     if (data.length > maxLen) maxLen = data.length;
   }
-  if (yMin === yMax) { yMin = 0; yMax = yMax * 2 || 100; }
-  const yPad = (yMax - yMin) * 0.1;
-  yMin = Math.max(0, yMin - yPad);
-  yMax = yMax + yPad;
+  if (sMin === sMax) { sMin = 0; sMax = sMax * 2 || 100; }
+  if (cMax <= 0) cMax = 1;
+  const sPad = (sMax - sMin) * 0.1;
+  sMin = Math.max(0, sMin - sPad); sMax = sMax + sPad;
+  cMax = cMax * 1.2;
 
   const xScale = (i, len) => pad.left + (i / Math.max(1, len - 1)) * chartW;
-  const yScale = (v) => pad.top + chartH - ((v - yMin) / (yMax - yMin)) * chartH;
+  const yScaleSize = (v) => pad.top + chartH - ((v - sMin) / (sMax - sMin)) * chartH;
+  const yScaleCount = (v) => pad.top + chartH - ((v - cMin) / (cMax - cMin)) * chartH;
 
   // Grid
   ctx.strokeStyle = getCssVar('--border');
@@ -2085,26 +2115,99 @@ function renderGlobalChart() {
   for (let i = 0; i <= 3; i++) {
     const y = pad.top + (i / 3) * chartH;
     ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
-    const val = yMax - (i / 3) * (yMax - yMin);
+    // Left Y: size
+    const sizeVal = sMax - (i / 3) * (sMax - sMin);
     ctx.fillStyle = getCssVar('--text-dim');
     ctx.font = '9px ' + getComputedStyle(document.body).fontFamily;
     ctx.textAlign = 'right';
-    ctx.fillText(formatBytes(val), pad.left - 4, y + 3);
+    ctx.fillText(formatBytes(sizeVal), pad.left - 4, y + 3);
+    // Right Y: count
+    const countVal = cMax - (i / 3) * (cMax - cMin);
+    ctx.textAlign = 'left';
+    ctx.fillText(Math.round(countVal), W - pad.right + 4, y + 3);
   }
 
-  // Draw each topic line
+  // X time labels
+  const refTopic = topicEntries.reduce((a, b) => state.globalHistoryData[a].length >= state.globalHistoryData[b].length ? a : b);
+  const refData = state.globalHistoryData[refTopic];
+  ctx.textAlign = 'center';
+  ctx.fillStyle = getCssVar('--text-dim');
+  const xLabelCount = Math.min(6, refData.length);
+  for (let i = 0; i < xLabelCount; i++) {
+    const idx = Math.floor((i / Math.max(xLabelCount - 1, 1)) * (refData.length - 1));
+    ctx.fillText(formatTime(refData[idx].timestamp), xScale(idx, refData.length), H - 4);
+  }
+
+  // Draw each topic: solid line for size, dashed line for count
   topicEntries.forEach((topic, idx) => {
     const data = state.globalHistoryData[topic];
     const color = GLOBAL_CHART_COLORS[idx % GLOBAL_CHART_COLORS.length];
+
+    // Solid line: avg_bytes (size)
     ctx.beginPath();
-    ctx.moveTo(xScale(0, data.length), yScale(data[0].avg_bytes));
+    ctx.moveTo(xScale(0, data.length), yScaleSize(data[0].avg_bytes));
     for (let i = 1; i < data.length; i++) {
-      ctx.lineTo(xScale(i, data.length), yScale(data[i].avg_bytes));
+      ctx.lineTo(xScale(i, data.length), yScaleSize(data[i].avg_bytes));
     }
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
+    ctx.setLineDash([]);
     ctx.stroke();
+
+    // Dashed line: message_count
+    ctx.beginPath();
+    ctx.moveTo(xScale(0, data.length), yScaleCount(data[0].message_count));
+    for (let i = 1; i < data.length; i++) {
+      ctx.lineTo(xScale(i, data.length), yScaleCount(data[i].message_count));
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
   });
+
+  // Hover crosshair with per-topic tooltip
+  if (canvas._hovering && maxLen > 1) {
+    const mx = canvas._hoverX;
+    const ci = Math.round(((mx - pad.left) / chartW) * (maxLen - 1));
+    const clampI = Math.max(0, Math.min(maxLen - 1, ci));
+    const px = xScale(clampI, maxLen);
+
+    ctx.strokeStyle = getCssVar('--text-dim');
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(px, pad.top); ctx.lineTo(px, pad.top + chartH); ctx.stroke();
+    ctx.setLineDash([]);
+
+    let tooltipHtml = '';
+    // Timestamp from reference data
+    const refIdx = Math.min(clampI, refData.length - 1);
+    if (refData[refIdx]) {
+      tooltipHtml += `<div style="color:var(--text-muted)">${formatTime(refData[refIdx].timestamp)}</div>`;
+    }
+    topicEntries.forEach((topic, ti) => {
+      const data = state.globalHistoryData[topic];
+      const di = Math.min(clampI, data.length - 1);
+      const color = GLOBAL_CHART_COLORS[ti % GLOBAL_CHART_COLORS.length];
+      if (data[di]) {
+        tooltipHtml += `<div><span style="color:${color}">${topic}:</span> ${formatBytes(data[di].avg_bytes)} / ${data[di].message_count} msg</div>`;
+        // Dots on both lines
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(xScale(di, data.length), yScaleSize(data[di].avg_bytes), 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(xScale(di, data.length), yScaleCount(data[di].message_count), 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+
+    const globalTooltip = document.getElementById('globalChartTooltip');
+    if (globalTooltip) {
+      globalTooltip.innerHTML = tooltipHtml;
+      globalTooltip.style.display = 'block';
+      const tipX = px + 10 > W - 140 ? px - 150 : px + 10;
+      globalTooltip.style.left = tipX + 'px';
+      globalTooltip.style.top = '4px';
+    }
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2133,12 +2236,14 @@ function setupMiniChart(canvasId, wrapId, tooltipId) {
 }
 
 // Initialize hover listeners on load
-let feedChartRef, alertChartRef;
+let feedChartRef, alertChartRef, globalChartRef;
 setTimeout(() => {
   feedChartRef = setupMiniChart('feedChart', 'feedChartWrap', 'feedChartTooltip');
   if (feedChartRef) feedChartRef.canvas._renderFn = renderFeedChart;
   alertChartRef = setupMiniChart('alertChart', 'alertChartWrap', 'alertChartTooltip');
   if (alertChartRef) alertChartRef.canvas._renderFn = renderAlertChart;
+  globalChartRef = setupMiniChart('globalHistoryChart', 'globalChartContainer', 'globalChartTooltip');
+  if (globalChartRef) globalChartRef.canvas._renderFn = renderGlobalChart;
 }, 0);
 
 /* ── Chart Mode Switching ── */
@@ -2154,6 +2259,20 @@ function setFeedChartMode(mode, btn) {
   } else {
     // Fetch history for all topics and render multi-topic chart
     fetchFeedHistoryAll(mode);
+  }
+}
+
+function setChartType(chart, type, btn) {
+  if (chart === 'feed') {
+    feedChartTypeMode = type;
+    document.querySelectorAll('#feedChartType .chart-type-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderFeedChart();
+  } else if (chart === 'alert') {
+    alertChartTypeMode = type;
+    document.querySelectorAll('#alertChartType .chart-type-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderAlertChart();
   }
 }
 
@@ -2286,31 +2405,51 @@ function renderFeedChart() {
   }
 
   const cyanColor = getCssVar('--cyan');
-  ctx.beginPath();
-  ctx.moveTo(xScale(0), yScaleSize(sizes[0]));
-  for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScaleSize(sizes[i]));
-  ctx.lineTo(xScale(data.length - 1), pad.top + cH);
-  ctx.lineTo(xScale(0), pad.top + cH);
-  ctx.closePath();
-  ctx.fillStyle = cyanColor.replace(')', ', 0.06)').replace('rgb', 'rgba');
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.moveTo(xScale(0), yScaleSize(sizes[0]));
-  for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScaleSize(sizes[i]));
-  ctx.strokeStyle = cyanColor;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
   const magentaColor = getCssVar('--magenta');
-  ctx.beginPath();
-  ctx.moveTo(xScale(0), yScaleCount(counts[0]));
-  for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScaleCount(counts[i]));
-  ctx.strokeStyle = magentaColor;
-  ctx.lineWidth = 1;
-  ctx.setLineDash([3, 2]);
-  ctx.stroke();
-  ctx.setLineDash([]);
+
+  if (feedChartTypeMode === 'bar') {
+    // Bar chart mode: paired bars for size and count
+    const barW = Math.max(2, (cW / data.length) * 0.35);
+    for (let i = 0; i < data.length; i++) {
+      const x = xScale(i);
+      const sH = ((sizes[i] - sMin) / (sMax - sMin)) * cH;
+      const cntH = ((counts[i] - cMin) / (cMax - cMin)) * cH;
+      ctx.fillStyle = cyanColor;
+      ctx.fillRect(x - barW - 0.5, pad.top + cH - sH, barW, sH);
+      ctx.fillStyle = magentaColor;
+      ctx.fillRect(x + 0.5, pad.top + cH - cntH, barW, cntH);
+    }
+  } else {
+    // Area fill (only in area mode)
+    if (feedChartTypeMode === 'area') {
+      ctx.beginPath();
+      ctx.moveTo(xScale(0), yScaleSize(sizes[0]));
+      for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScaleSize(sizes[i]));
+      ctx.lineTo(xScale(data.length - 1), pad.top + cH);
+      ctx.lineTo(xScale(0), pad.top + cH);
+      ctx.closePath();
+      ctx.fillStyle = cyanColor.replace(')', ', 0.06)').replace('rgb', 'rgba');
+      ctx.fill();
+    }
+
+    // Size line (solid cyan)
+    ctx.beginPath();
+    ctx.moveTo(xScale(0), yScaleSize(sizes[0]));
+    for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScaleSize(sizes[i]));
+    ctx.strokeStyle = cyanColor;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Count line (dashed magenta)
+    ctx.beginPath();
+    ctx.moveTo(xScale(0), yScaleCount(counts[0]));
+    for (let i = 1; i < data.length; i++) ctx.lineTo(xScale(i), yScaleCount(counts[i]));
+    ctx.strokeStyle = magentaColor;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 2]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
   if (canvas._hovering && data.length > 1) {
     const mx = canvas._hoverX;
@@ -2517,11 +2656,12 @@ function renderAlertChart() {
   const cW = W - pad.left - pad.right;
   const cH = H - pad.top - pad.bottom;
 
-  const maxVal = Math.max(...data.map(d => d.warnings + d.criticals), 1) * 1.2;
-  const barW = Math.max(2, (cW / Math.max(data.length, 1)) - 1);
+  const warnMax = Math.max(...data.map(d => d.warnings), 0);
+  const critMax = Math.max(...data.map(d => d.criticals), 0);
+  const maxVal = Math.max(warnMax, critMax, 1) * 1.2;
 
   const yScale = (v) => pad.top + cH - (v / maxVal) * cH;
-  const xPos = (i) => pad.left + (i / Math.max(data.length, 1)) * cW;
+  const xPos = (i) => pad.left + (i / Math.max(data.length - 1, 1)) * cW;
 
   // X time labels
   ctx.font = '8px ' + getComputedStyle(document.body).fontFamily;
@@ -2532,30 +2672,71 @@ function renderAlertChart() {
     const idx = Math.floor((i / Math.max(xLabels - 1, 1)) * (data.length - 1));
     const d = new Date(data[idx].ts);
     if (alertChartMode === 'live') {
-      ctx.fillText(`${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`, xPos(idx) + barW / 2, H - 2);
+      ctx.fillText(`${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`, xPos(idx), H - 2);
     } else {
-      ctx.fillText(`${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`, xPos(idx) + barW / 2, H - 2);
+      ctx.fillText(`${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`, xPos(idx), H - 2);
     }
   }
 
-  // Bars
   const yellowColor = getCssVar('--yellow');
   const redColor = getCssVar('--red');
 
-  for (let i = 0; i < data.length; i++) {
-    const x = xPos(i);
-    const warnH = (data[i].warnings / maxVal) * cH;
-    const critH = (data[i].criticals / maxVal) * cH;
-
-    // Warning bar (bottom)
-    if (warnH > 0) {
-      ctx.fillStyle = yellowColor;
-      ctx.fillRect(x, yScale(data[i].warnings), barW, warnH);
+  if (alertChartTypeMode === 'bar') {
+    // Stacked bar chart
+    const barW = Math.max(2, (cW / Math.max(data.length, 1)) - 1);
+    const barXPos = (i) => pad.left + (i / Math.max(data.length, 1)) * cW;
+    for (let i = 0; i < data.length; i++) {
+      const x = barXPos(i);
+      const warnH = (data[i].warnings / maxVal) * cH;
+      const critH = (data[i].criticals / maxVal) * cH;
+      if (warnH > 0) {
+        ctx.fillStyle = yellowColor;
+        ctx.fillRect(x, pad.top + cH - warnH, barW, warnH);
+      }
+      if (critH > 0) {
+        ctx.fillStyle = redColor;
+        ctx.fillRect(x, pad.top + cH - warnH - critH, barW, critH);
+      }
     }
-    // Critical bar (stacked on top)
-    if (critH > 0) {
-      ctx.fillStyle = redColor;
-      ctx.fillRect(x, yScale(data[i].warnings + data[i].criticals), barW, critH);
+  } else {
+    // Line or area mode — dual lines for warnings and criticals
+    if (data.length >= 2) {
+      // Area fill (only in area mode)
+      if (alertChartTypeMode === 'area') {
+        ctx.beginPath();
+        ctx.moveTo(xPos(0), yScale(data[0].warnings));
+        for (let i = 1; i < data.length; i++) ctx.lineTo(xPos(i), yScale(data[i].warnings));
+        ctx.lineTo(xPos(data.length - 1), pad.top + cH);
+        ctx.lineTo(xPos(0), pad.top + cH);
+        ctx.closePath();
+        ctx.fillStyle = yellowColor.replace(')', ', 0.08)').replace('rgb', 'rgba');
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(xPos(0), yScale(data[0].criticals));
+        for (let i = 1; i < data.length; i++) ctx.lineTo(xPos(i), yScale(data[i].criticals));
+        ctx.lineTo(xPos(data.length - 1), pad.top + cH);
+        ctx.lineTo(xPos(0), pad.top + cH);
+        ctx.closePath();
+        ctx.fillStyle = redColor.replace(')', ', 0.08)').replace('rgb', 'rgba');
+        ctx.fill();
+      }
+
+      // Warnings line (solid yellow)
+      ctx.beginPath();
+      ctx.moveTo(xPos(0), yScale(data[0].warnings));
+      for (let i = 1; i < data.length; i++) ctx.lineTo(xPos(i), yScale(data[i].warnings));
+      ctx.strokeStyle = yellowColor;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Criticals line (solid red)
+      ctx.beginPath();
+      ctx.moveTo(xPos(0), yScale(data[0].criticals));
+      for (let i = 1; i < data.length; i++) ctx.lineTo(xPos(i), yScale(data[i].criticals));
+      ctx.strokeStyle = redColor;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
   }
 
@@ -2564,14 +2745,21 @@ function renderAlertChart() {
     const mx = canvas._hoverX;
     const idx = Math.round(((mx - pad.left) / cW) * (data.length - 1));
     const ci = Math.max(0, Math.min(data.length - 1, idx));
-    const px = xPos(ci) + barW / 2;
+    const px = xPos(ci);
 
-    // Highlight bar border
-    ctx.strokeStyle = getCssVar('--text');
-    ctx.lineWidth = 1;
-    const totalH = ((data[ci].warnings + data[ci].criticals) / maxVal) * cH;
-    if (totalH > 0) {
-      ctx.strokeRect(xPos(ci) - 1, yScale(data[ci].warnings + data[ci].criticals) - 1, barW + 2, totalH + 2);
+    // Crosshair
+    ctx.strokeStyle = getCssVar('--text-dim');
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(px, pad.top); ctx.lineTo(px, pad.top + cH); ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (alertChartTypeMode !== 'bar') {
+      // Dots on lines
+      ctx.fillStyle = yellowColor;
+      ctx.beginPath(); ctx.arc(px, yScale(data[ci].warnings), 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = redColor;
+      ctx.beginPath(); ctx.arc(px, yScale(data[ci].criticals), 3, 0, Math.PI * 2); ctx.fill();
     }
 
     // Tooltip
