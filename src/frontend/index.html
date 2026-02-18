@@ -3420,6 +3420,15 @@ function renderInsights(data) {
   const body = document.getElementById('insightsBody');
   let html = '';
 
+  // ── Consumer Lag Time-Series Chart (top panel) ──
+  html += '<div class="insights-section">';
+  html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Consumer Lag Over Time</div>';
+  html += '<div id="lagChartLegend" class="lag-chart-legend"></div>';
+  html += '<div class="lag-chart-container" id="lagChartContainer">';
+  html += '<canvas id="lagChart"></canvas>';
+  html += '<div class="lag-chart-tooltip" id="lagChartTooltip"></div>';
+  html += '</div></div>';
+
   // ── Cluster Overview ──
   html += '<div class="insights-section">';
   html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Cluster Overview</div>';
@@ -3459,15 +3468,6 @@ function renderInsights(data) {
     }
     html += '</tbody></table></div>';
   }
-
-  // ── Consumer Lag Time-Series Chart ──
-  html += '<div class="insights-section">';
-  html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Consumer Lag Over Time</div>';
-  html += '<div id="lagChartLegend" class="lag-chart-legend"></div>';
-  html += '<div class="lag-chart-container" id="lagChartContainer">';
-  html += '<canvas id="lagChart"></canvas>';
-  html += '<div class="lag-chart-tooltip" id="lagChartTooltip"></div>';
-  html += '</div></div>';
 
   // ── Broker Details ──
   if (data.brokers && data.brokers.length > 0) {
