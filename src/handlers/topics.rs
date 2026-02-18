@@ -4,6 +4,7 @@ use crate::models::{
 };
 use crate::tracker::alerts::AlertEngine;
 use crate::tracker::stats::StatsEngine;
+use crate::TopicManager;
 use actix_web::{web, HttpResponse};
 use rdkafka::consumer::BaseConsumer;
 use std::collections::HashSet;
@@ -89,9 +90,12 @@ pub async fn get_available_topics(
 }
 
 /// POST /api/topics/toggle — enable or disable topics for monitoring.
+/// If `start_from` is provided in the request body, immediately subscribes
+/// to the topics with the specified start position.
 pub async fn toggle_topics(
     body: web::Json<TopicToggleRequest>,
     tracked_topics: web::Data<Arc<RwLock<HashSet<String>>>>,
+    topic_manager: web::Data<Arc<TopicManager>>,
 ) -> HttpResponse {
     let req = body.into_inner();
     let mut tracked = tracked_topics.write().await;
@@ -107,12 +111,20 @@ pub async fn toggle_topics(
     }
 
     let current: Vec<String> = tracked.iter().cloned().collect();
+    drop(tracked);
+
     log::info!(
-        "Topics toggled: enabled={}, topics={:?}, current_tracked={:?}",
+        "Topics toggled: enabled={}, topics={:?}, start_from={:?}, current_tracked={:?}",
         req.enabled,
         req.topics,
+        req.start_from,
         current
     );
+
+    // If enabling with a start position, trigger immediate subscription
+    if req.enabled {
+        topic_manager.subscribe_all(&req.topics, req.start_from).await;
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "tracked": current

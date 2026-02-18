@@ -13,14 +13,14 @@ Real-time Kafka message size monitoring dashboard with configurable alerts, hist
 - **WebSocket streaming** with rate limiting (50 events/sec), topic filtering, and auto-reconnect
 - **Auto-discovery** of new Kafka topics every 30 seconds
 - **Hot-swappable broker** configuration without restart
-- **Topic selection** — startup picker overlay to choose which topics to monitor, with localStorage persistence
+- **Topic selection with replay** — startup picker overlay to choose which topics to monitor (with localStorage persistence) and select a start position (Latest, Beginning, Timestamp, or specific Offset) for replaying historical data through the stats engine
 - **Size-based topic sorting** — sidebar topics sorted by average message size (largest first) with red blinking border for topics exceeding alert thresholds
 - **Enhanced alerts** — time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery** — discover cluster brokers via metadata API, popover UI with click-to-connect
 - **Cluster insights** — full-screen overlay showing brokers, topics, partitions, consumer lag, throughput per topic, and recommendations
 - **Health report** — non-technical summary overlay showing per-topic health status with plain-English descriptions of abnormalities, auto-refreshes every 5 seconds
 - **MongoDB persistence** — optional persistence of oversized messages and alerts to MongoDB, with a dedicated browser tab for querying persisted data
-- **3 UI themes** — Terminal/Chalk (default), Tokyo Night, Dracula, with theme switcher and localStorage persistence
+- **4 UI themes** — Terminal/Chalk (default), Tokyo Night, Dracula, Light, with theme switcher and localStorage persistence
 
 ## Quick Start
 
@@ -87,13 +87,14 @@ All CLI options can be overridden with environment variables:
 
 ## Dashboard
 
-The web UI supports **3 themes**, selectable via the theme switcher in the header:
+The web UI supports **4 themes**, selectable via the theme switcher in the header:
 
 | Theme | Description |
 |-------|-------------|
 | **Terminal/Chalk** (default) | Dark background (#0d1117), ANSI terminal colors, scanline overlay, CRT text glow |
 | **Tokyo Night** | Deep blue tones inspired by the Tokyo Night color scheme |
 | **Dracula** | Purple-accented dark theme based on the Dracula palette |
+| **Light** | Clean light background (#f5f5f5), no scanline overlay, dark text |
 
 All themes use monospace fonts (JetBrains Mono / Fira Code) and the selected theme persists via localStorage.
 
@@ -110,7 +111,7 @@ The dashboard uses a vertical sidebar (280px left) with expandable topic cards a
 | **Alerts** | Active/recent alerts with severity indicators, time window filter (5m/15m/1h/all) |
 | **History Chart** | Canvas-based time-series line chart with selectable range (1h/6h/24h/7d) |
 | **Global History** | Spanning bottom panel for global snapshot timeline |
-| **Topic Picker** | Startup overlay to select which topics to monitor (persisted to localStorage) |
+| **Topic Picker** | Startup overlay to select topics + start position (Latest/Beginning/Timestamp/Offset), persisted to localStorage |
 | **Broker Discovery** | Popover showing discovered cluster brokers with click-to-connect |
 | **Cluster Insights** | Full-screen overlay with broker table, topic/partition details, consumer lag bars, throughput metrics, and recommendation cards |
 | **Health Report** | Full-screen overlay with per-topic health cards, plain-English abnormality descriptions, alert summary table, auto-refresh (5s) |
@@ -190,11 +191,11 @@ src/
 ├── main.rs              # Server bootstrap, TopicManager, AppState, SharedMongoStore, routes, background tasks
 ├── config.rs            # CLI args (clap) + environment variable fallback + --mongo-uri
 ├── error.rs             # TrackerError with actix ResponseError impl
-├── models.rs            # All data structures and serialization (including topic toggle, broker discovery, cluster insights, browse presets)
+├── models.rs            # All data structures and serialization (including StartPosition, topic toggle, broker discovery, cluster insights, browse presets)
 ├── mongo.rs             # MongoStore: two collections (oversized_messages + alerts), PersistedMessage/PersistedAlert models
 ├── kafka/
 │   ├── admin.rs         # BaseConsumer for metadata, discover_brokers(), fetch_consumer_lag(), build_cluster_insights()
-│   ├── consumer.rs      # StreamConsumer per topic, size extraction
+│   ├── consumer.rs      # StreamConsumer per topic, size extraction, StartPosition seeking (latest/beginning/timestamp/offset)
 │   └── browser.rs       # Historical message browsing (seek by offset/timestamp), browse_from_beginning(), browse_latest()
 ├── tracker/
 │   ├── stats.rs         # StatsEngine: reservoir sampling (Algorithm R), percentiles, rates
@@ -211,7 +212,7 @@ src/
 │   └── ws.rs            # WebSocket /ws/live
 └── frontend/
     ├── mod.rs           # include_str! embedding
-    └── index.html       # ~2400-line SPA with 3 themes
+    └── index.html       # ~2600-line SPA with 4 themes
 ```
 
 ### Key Design Decisions
@@ -288,16 +289,16 @@ Two-stage build for minimal runtime image:
 cargo test
 ```
 
-**73 tests** across all modules:
+**79 tests** across all modules:
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
 | `config` | 2 | Default values, CLI arg overrides |
-| `models` | 18 | Serialization roundtrips, serde attributes, browse/snapshot/toggle/discovery/insights/preset models |
+| `models` | 24 | Serialization roundtrips, serde attributes, browse/snapshot/toggle/discovery/insights/preset models, StartPosition serde |
 | `handlers::history` | 1 | Range string parsing |
 | `kafka::browser` | 5 | Payload encoding (UTF-8/binary/truncation), unique ID generation |
 | `tracker::stats` | 13 | Running stats, reservoir sampling, percentiles, rates, snapshots |
-| `tracker::alerts` | 11 | Threshold checks, circular buffer, per-topic config, enable/disable, capture store/eviction |
+| `tracker::alerts` | 14 | Threshold checks, circular buffer, per-topic config, enable/disable, capture store/eviction, runtime defaults, capture thresholds |
 | `storage` | 14 | Circular buffer, range queries, eviction, multi-topic independence, snapshot_at, lag timeseries (append, eviction, clear) |
 | `mongo` | 4 | PersistedMessage ser/deser, PersistedAlert ser/deser |
 

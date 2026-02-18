@@ -1,8 +1,8 @@
-use crate::models::MessageSizeEvent;
+use crate::models::{MessageSizeEvent, StartPosition};
 use crate::tracker::alerts::AlertEngine;
 use chrono::{DateTime, Utc};
 use rdkafka::consumer::{Consumer, StreamConsumer};
-use rdkafka::{ClientConfig, Message};
+use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
 use std::time::Duration;
 use tokio::sync::broadcast;
 
@@ -11,17 +11,29 @@ use tokio::sync::broadcast;
 /// Reads the current capture threshold from AlertEngine on each message, so
 /// threshold changes via the API take effect immediately without restarting consumers.
 /// Sends MessageSizeEvent through the broadcast channel.
+///
+/// `start_position` controls where to start reading:
+/// - None / Latest: start from the latest offset (default)
+/// - Beginning: start from the earliest offset
+/// - Timestamp: seek to a specific timestamp
+/// - Offset: seek to a specific partition/offset
 pub async fn run_size_tracking_consumer(
     brokers: String,
     topic: String,
     group_id: String,
     tx: broadcast::Sender<MessageSizeEvent>,
     alert_engine: AlertEngine,
+    start_position: Option<StartPosition>,
 ) {
+    let auto_offset_reset = match &start_position {
+        Some(StartPosition::Beginning) => "earliest",
+        _ => "latest",
+    };
+
     let consumer: StreamConsumer = match ClientConfig::new()
         .set("bootstrap.servers", &brokers)
         .set("group.id", format!("{}-{}", group_id, topic))
-        .set("auto.offset.reset", "latest")
+        .set("auto.offset.reset", auto_offset_reset)
         .set("enable.auto.commit", "true")
         .create()
     {
@@ -32,12 +44,100 @@ pub async fn run_size_tracking_consumer(
         }
     };
 
-    if let Err(e) = consumer.subscribe(&[&topic]) {
-        log::error!("Failed to subscribe to topic {}: {}", topic, e);
-        return;
-    }
+    // For Timestamp and Offset start positions, use assign() instead of subscribe()
+    // to get deterministic partition assignment and seeking.
+    match &start_position {
+        Some(StartPosition::Timestamp { value }) => {
+            let ts = match value.parse::<DateTime<Utc>>() {
+                Ok(dt) => dt,
+                Err(e) => {
+                    log::error!("Invalid timestamp '{}' for topic {}: {}", value, topic, e);
+                    return;
+                }
+            };
+            let ts_millis = ts.timestamp_millis();
 
-    log::info!("Started size-tracking consumer for topic: {}", topic);
+            let metadata = match consumer.fetch_metadata(Some(&topic), Duration::from_secs(10)) {
+                Ok(m) => m,
+                Err(e) => {
+                    log::error!("Failed to fetch metadata for topic {}: {}", topic, e);
+                    return;
+                }
+            };
+            let partition_count = metadata
+                .topics()
+                .iter()
+                .find(|t| t.name() == topic)
+                .map(|t| t.partitions().len() as i32)
+                .unwrap_or(0);
+
+            if partition_count == 0 {
+                log::warn!("No partitions found for topic {}", topic);
+                return;
+            }
+
+            // Build TPL with timestamps for offset lookup
+            let mut tpl = TopicPartitionList::new();
+            for p in 0..partition_count {
+                if let Err(e) = tpl.add_partition_offset(&topic, p, Offset::Offset(ts_millis)) {
+                    log::error!("Failed to set timestamp offset for topic {}: {}", topic, e);
+                    return;
+                }
+            }
+
+            let resolved = match consumer.offsets_for_times(tpl, Duration::from_secs(10)) {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("Failed to resolve timestamps for topic {}: {}", topic, e);
+                    return;
+                }
+            };
+
+            // Build assignment from resolved offsets
+            let mut assign_tpl = TopicPartitionList::new();
+            for elem in resolved.elements() {
+                match elem.offset() {
+                    Offset::Offset(o) if o >= 0 => {
+                        let _ = assign_tpl.add_partition_offset(&topic, elem.partition(), Offset::Offset(o));
+                    }
+                    _ => {
+                        // No messages at/after timestamp — start from end
+                        let _ = assign_tpl.add_partition_offset(&topic, elem.partition(), Offset::End);
+                    }
+                }
+            }
+
+            if let Err(e) = consumer.assign(&assign_tpl) {
+                log::error!("Failed to assign partitions for topic {}: {}", topic, e);
+                return;
+            }
+            log::info!("Started size-tracking consumer for topic: {} (from timestamp {})", topic, value);
+        }
+        Some(StartPosition::Offset { partition, offset }) => {
+            let mut tpl = TopicPartitionList::new();
+            if let Err(e) = tpl.add_partition_offset(&topic, *partition, Offset::Offset(*offset)) {
+                log::error!("Failed to set offset for topic {}: {}", topic, e);
+                return;
+            }
+            if let Err(e) = consumer.assign(&tpl) {
+                log::error!("Failed to assign partition for topic {}: {}", topic, e);
+                return;
+            }
+            log::info!("Started size-tracking consumer for topic: {} (from partition {} offset {})", topic, partition, offset);
+        }
+        _ => {
+            // Latest or Beginning — use subscribe() for normal consumer group behavior
+            if let Err(e) = consumer.subscribe(&[&topic]) {
+                log::error!("Failed to subscribe to topic {}: {}", topic, e);
+                return;
+            }
+            let pos_name = match &start_position {
+                Some(StartPosition::Beginning) => "beginning",
+                _ => "latest",
+            };
+            log::info!("Started size-tracking consumer for topic: {} (from {})", topic, pos_name);
+        }
+    }
 
     loop {
         match consumer.recv().await {

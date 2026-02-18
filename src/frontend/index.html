@@ -88,6 +88,32 @@
   --white: #f8f8f2;
 }
 
+/* ── Light Theme ── */
+[data-theme="light"] {
+  --bg: #f5f5f5;
+  --surface: #ffffff;
+  --surface2: #f0f0f0;
+  --surface3: #e8e8e8;
+  --border: #d0d0d0;
+  --border-bright: #b0b0b0;
+  --text: #1a1a2e;
+  --text-dim: #6b6b80;
+  --text-muted: #9a9ab0;
+  --green: #16a34a;
+  --green-dim: #22863a;
+  --red: #dc2626;
+  --red-dim: #b91c1c;
+  --yellow: #ca8a04;
+  --yellow-dim: #a16207;
+  --cyan: #0891b2;
+  --cyan-dim: #0e7490;
+  --magenta: #c026d3;
+  --magenta-dim: #a21caf;
+  --blue: #2563eb;
+  --orange: #ea580c;
+  --white: #1a1a2e;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -115,6 +141,8 @@ body::after {
     rgba(0,0,0,0.03) 4px
   );
 }
+[data-theme="light"] body::after,
+html[data-theme="light"] body::after { display: none; }
 
 /* ── Layout ── */
 .app {
@@ -190,6 +218,7 @@ body::after {
 .theme-btn[data-theme="chalk"] { background: #0d1117; }
 .theme-btn[data-theme="tokyo-night"] { background: #1a1b26; }
 .theme-btn[data-theme="dracula"] { background: #282a36; }
+.theme-btn[data-theme="light"] { background: #f5f5f5; border-color: #d0d0d0; }
 
 .broker-input-group {
   display: flex;
@@ -366,6 +395,11 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   border: 2px solid var(--red);
   box-shadow: 0 0 12px rgba(255,85,85,0.25);
   animation: blink-red 1.2s ease-in-out infinite;
+  transition: none;
+}
+.topic-card.priority-alert:hover {
+  border-color: var(--red);
+  background: rgba(255,85,85,0.04);
 }
 @keyframes blink-red {
   0%, 100% {
@@ -388,7 +422,7 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   50% { box-shadow: 0 0 10px rgba(241,250,140,0.15); }
 }
 
-.topic-name { color: var(--cyan); font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+.topic-name { color: var(--white); font-weight: 700; font-size: 13px; margin-bottom: 6px; text-shadow: 0 0 6px rgba(248,248,242,0.2); }
 .topic-metric {
   display: flex;
   justify-content: space-between;
@@ -1012,6 +1046,67 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   color: var(--text-dim); text-align: center; padding: 24px; font-size: 12px;
 }
 
+.start-from-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.start-from-label {
+  color: var(--cyan); font-size: 12px; font-weight: 600; margin-bottom: 8px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.start-from-options {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.start-from-option {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  transition: background var(--transition);
+}
+.start-from-option:hover { background: var(--surface3); }
+.start-from-option input[type="radio"] {
+  accent-color: var(--cyan);
+  width: 14px; height: 14px;
+  cursor: pointer;
+}
+.start-from-option .option-label { font-weight: 600; min-width: 80px; }
+.start-from-option .option-desc { color: var(--text-dim); font-size: 11px; }
+.start-from-detail {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: none;
+}
+.start-from-detail.active { display: block; }
+.start-from-detail input {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  outline: none;
+  width: 100%;
+  margin-top: 4px;
+}
+.start-from-detail input:focus { border-color: var(--cyan); }
+.start-from-detail label {
+  color: var(--text-dim); font-size: 11px;
+}
+.start-from-detail-row {
+  display: flex; gap: 8px; margin-top: 4px;
+}
+.start-from-detail-row > div { flex: 1; }
+
 /* ── Discover Popover ── */
 .discover-popover {
   position: absolute; top: 100%; right: 0; margin-top: 6px;
@@ -1214,6 +1309,7 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
       <button class="theme-btn active" data-theme="chalk" onclick="setTheme('chalk')" title="Chalk"></button>
       <button class="theme-btn" data-theme="tokyo-night" onclick="setTheme('tokyo-night')" title="Tokyo Night"></button>
       <button class="theme-btn" data-theme="dracula" onclick="setTheme('dracula')" title="Dracula"></button>
+      <button class="theme-btn" data-theme="light" onclick="setTheme('light')" title="Light"></button>
     </div>
     <div class="broker-input-group" style="position:relative">
       <span class="broker-label">broker://</span>
@@ -1548,6 +1644,47 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
     <div class="topic-picker-subtitle">Choose which Kafka topics to track. You can toggle them later from the sidebar.</div>
     <div class="topic-checkbox-list" id="topicCheckboxList">
       <div class="topic-picker-loading">loading topics...</div>
+    </div>
+    <div class="start-from-section">
+      <div class="start-from-label">Start From</div>
+      <div class="start-from-options">
+        <label class="start-from-option">
+          <input type="radio" name="startFrom" value="latest" checked>
+          <span class="option-label">Latest</span>
+          <span class="option-desc">— only new messages (default)</span>
+        </label>
+        <label class="start-from-option">
+          <input type="radio" name="startFrom" value="beginning">
+          <span class="option-label">Beginning</span>
+          <span class="option-desc">— replay from earliest offset</span>
+        </label>
+        <label class="start-from-option">
+          <input type="radio" name="startFrom" value="timestamp">
+          <span class="option-label">Timestamp</span>
+          <span class="option-desc">— start from a specific time</span>
+        </label>
+        <label class="start-from-option">
+          <input type="radio" name="startFrom" value="offset">
+          <span class="option-label">Offset</span>
+          <span class="option-desc">— start from a specific partition/offset</span>
+        </label>
+      </div>
+      <div class="start-from-detail" id="startFromTimestamp">
+        <label>Timestamp (ISO 8601 / datetime)</label>
+        <input type="datetime-local" id="startFromTimestampInput" step="1">
+      </div>
+      <div class="start-from-detail" id="startFromOffset">
+        <div class="start-from-detail-row">
+          <div>
+            <label>Partition</label>
+            <input type="number" id="startFromPartitionInput" value="0" min="0">
+          </div>
+          <div>
+            <label>Offset</label>
+            <input type="number" id="startFromOffsetInput" value="0" min="0">
+          </div>
+        </div>
+      </div>
     </div>
     <div class="topic-picker-actions">
       <span class="topic-picker-select-all" onclick="toggleAllTopics()">[select all]</span>
@@ -3042,6 +3179,39 @@ function toggleAllTopics() {
   checkboxes.forEach(cb => cb.checked = !allChecked);
 }
 
+// Toggle "Start From" detail panels based on radio selection
+document.addEventListener('change', (e) => {
+  if (e.target.name === 'startFrom') {
+    document.getElementById('startFromTimestamp').classList.remove('active');
+    document.getElementById('startFromOffset').classList.remove('active');
+    if (e.target.value === 'timestamp') {
+      document.getElementById('startFromTimestamp').classList.add('active');
+    } else if (e.target.value === 'offset') {
+      document.getElementById('startFromOffset').classList.add('active');
+    }
+  }
+});
+
+function getStartPosition() {
+  const selected = document.querySelector('input[name="startFrom"]:checked');
+  if (!selected) return null;
+  switch (selected.value) {
+    case 'latest': return { type: 'latest' };
+    case 'beginning': return { type: 'beginning' };
+    case 'timestamp': {
+      const input = document.getElementById('startFromTimestampInput');
+      if (!input.value) return { type: 'latest' };
+      return { type: 'timestamp', value: new Date(input.value).toISOString() };
+    }
+    case 'offset': {
+      const partition = parseInt(document.getElementById('startFromPartitionInput').value) || 0;
+      const offset = parseInt(document.getElementById('startFromOffsetInput').value) || 0;
+      return { type: 'offset', partition, offset };
+    }
+    default: return null;
+  }
+}
+
 async function confirmTopicSelection() {
   const checkboxes = document.querySelectorAll('#topicCheckboxList input[type="checkbox"]:checked');
   const selected = Array.from(checkboxes).map(cb => cb.value);
@@ -3052,11 +3222,17 @@ async function confirmTopicSelection() {
     return;
   }
 
+  const startFrom = getStartPosition();
+
   try {
+    const body = { topics: selected, enabled: true };
+    if (startFrom && startFrom.type !== 'latest') {
+      body.start_from = startFrom;
+    }
     await fetch('/api/topics/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topics: selected, enabled: true }),
+      body: JSON.stringify(body),
     });
     localStorage.setItem('sizetracker_tracked_topics', JSON.stringify(selected));
   } catch (e) { /* ignore */ }

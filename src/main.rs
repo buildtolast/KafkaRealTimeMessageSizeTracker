@@ -10,7 +10,7 @@ mod tracker;
 
 use crate::config::{AppConfig, Args};
 use crate::kafka::admin;
-use crate::models::{CapturedMessage, LagDataPoint, MessageSizeEvent, TopicLag, WsMessage};
+use crate::models::{CapturedMessage, LagDataPoint, MessageSizeEvent, StartPosition, TopicLag, WsMessage};
 use crate::mongo::{MongoStore, PersistedAlert, PersistedMessage, SharedMongoStore};
 use crate::storage::{LagTimeSeries, TimeSeriesStorage};
 use crate::tracker::alerts::AlertEngine;
@@ -55,7 +55,8 @@ impl TopicManager {
     }
 
     /// Subscribe to a topic. Spawns a consumer if this is the first subscription.
-    async fn subscribe(&self, topic: &str) -> broadcast::Receiver<MessageSizeEvent> {
+    /// `start_position` controls where the consumer starts reading from.
+    async fn subscribe(&self, topic: &str, start_position: Option<StartPosition>) -> broadcast::Receiver<MessageSizeEvent> {
         let mut consumers = self.consumers.write().await;
 
         if let Some(tx) = consumers.get(topic) {
@@ -89,6 +90,7 @@ impl TopicManager {
                     group,
                     event_tx,
                     consumer_alerts,
+                    start_position,
                 )
                 .await;
             });
@@ -186,9 +188,9 @@ impl TopicManager {
     }
 
     /// Subscribe to all topics from the admin consumer.
-    async fn subscribe_all(&self, topics: &[String]) {
+    async fn subscribe_all(&self, topics: &[String], start_position: Option<StartPosition>) {
         for topic in topics {
-            self.subscribe(topic).await;
+            self.subscribe(topic, start_position.clone()).await;
         }
     }
 
@@ -320,7 +322,7 @@ async fn main() -> std::io::Result<()> {
                 if tracked.is_empty() {
                     // No selection yet — subscribe to all topics (backward-compatible)
                     drop(tracked);
-                    tm_for_discover.subscribe_all(&topic_list).await;
+                    tm_for_discover.subscribe_all(&topic_list, None).await;
                 } else {
                     // Only subscribe to tracked topics
                     let filtered: Vec<String> = topic_list
@@ -328,7 +330,7 @@ async fn main() -> std::io::Result<()> {
                         .filter(|t| tracked.contains(t))
                         .collect();
                     drop(tracked);
-                    tm_for_discover.subscribe_all(&filtered).await;
+                    tm_for_discover.subscribe_all(&filtered, None).await;
                 }
             }
         }
@@ -401,6 +403,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(tracked_topics.clone()))
             .app_data(web::Data::new(mongo_store.clone()))
             .app_data(web::Data::new(lag_timeseries.clone()))
+            .app_data(web::Data::new(topic_manager.clone()))
             .route("/", web::get().to(index))
             .route("/api/topics", web::get().to(handlers::topics::get_topics))
             .route(

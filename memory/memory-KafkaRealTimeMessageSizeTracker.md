@@ -29,21 +29,21 @@ KAFKA_BROKERS, SERVER_HOST, SERVER_PORT, ALERT_THRESHOLD_BYTES, CRITICAL_THRESHO
 ### Backend Modules
 ```
 src/
-├── main.rs              — Server bootstrap, TopicManager, AppState, SharedMongoStore, MongoDB init, routes, 3 background tasks, mongo_store passed to TopicManager, MongoDB persist in event pipeline
+├── main.rs              — Server bootstrap, TopicManager (with StartPosition support), AppState, SharedMongoStore, MongoDB init, routes, 4 background tasks, TopicManager in app_data
 ├── config.rs            — Args (clap) + AppConfig (env var fallback), --mongo-uri / MONGO_URI
 ├── error.rs             — TrackerError (thiserror) with actix ResponseError impl
-├── models.rs            — MessageSizeEvent, TopicStats, Alert, AlertConfig, HistoryDataPoint, WsMessage, CapturedMessage, HistoricalMessage, BrowseMessagesResponse, TopicSnapshot, GlobalSnapshotResponse, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, PartitionLag, TopicThroughput, ThroughputRecommendation, ClusterInsightsResponse, BrowseQueryParams (with preset: Option<String>), AlertDefaultsResponse, AlertDefaultsRequest
+├── models.rs            — MessageSizeEvent, TopicStats, Alert, AlertConfig, HistoryDataPoint, WsMessage, CapturedMessage, HistoricalMessage, BrowseMessagesResponse, TopicSnapshot, GlobalSnapshotResponse, TopicToggleRequest (with start_from), StartPosition enum, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, PartitionLag, TopicThroughput, ThroughputRecommendation, ClusterInsightsResponse, BrowseQueryParams, AlertDefaultsResponse, AlertDefaultsRequest
 ├── mongo.rs             — MongoStore with two collections (oversized_messages + alerts), PersistedMessage/PersistedAlert models, persist + query methods
 ├── kafka/
 │   ├── admin.rs         — BaseConsumer for metadata (list_topics), discover_brokers(), fetch_consumer_lag(), build_cluster_insights()
-│   ├── consumer.rs      — StreamConsumer per topic, extracts payload.len() + captures raw bytes dynamically (reads threshold from AlertEngine per message)
+│   ├── consumer.rs      — StreamConsumer per topic, accepts StartPosition (latest/beginning/timestamp/offset), extracts payload.len() + captures raw bytes dynamically
 │   └── browser.rs       — Historical message browsing: seek by offset/timestamp, browse_from_beginning(), browse_latest(), short-lived BaseConsumer per request
 ├── tracker/
 │   ├── stats.rs         — StatsEngine: running avg/min/max, reservoir sampling (Algorithm R, 1000 samples)
 │   └── alerts.rs        — AlertEngine: per-topic thresholds, circular buffer (1000 alerts), capture store (100 max), runtime-mutable defaults (Arc<RwLock>), get_capture_threshold() for dynamic consumer capture
 ├── storage.rs           — TimeSeriesStorage: per-minute aggregates, circular buffer (7 days = 10080 entries), snapshot_at() for time-travel
 ├── handlers/
-│   ├── topics.rs        — GET /api/topics, GET /api/topics/available, POST /api/topics/toggle
+│   ├── topics.rs        — GET /api/topics, GET /api/topics/available, POST /api/topics/toggle (with TopicManager + StartPosition)
 │   ├── stats.rs         — GET /api/stats/{topic}
 │   ├── alerts.rs        — GET /api/alerts, GET /api/alerts/download/{id}, GET/POST /api/alerts/config
 │   ├── history.rs       — GET /api/history/{topic}?range=1h|6h|24h|7d
@@ -53,24 +53,26 @@ src/
 │   └── ws.rs            — WebSocket /ws/live (rate-limited 50 events/sec, topic filtering)
 └── frontend/
     ├── mod.rs           — include_str!("index.html")
-    └── index.html       — ~2400-line SPA with 3 themes (Terminal/Chalk, Tokyo Night, Dracula)
+    └── index.html       — ~2600-line SPA with 4 themes (Terminal/Chalk, Tokyo Night, Dracula, Light)
 ```
 
 ### Key Patterns (from KafkaDashboard)
-- **TopicManager**: `Arc<RwLock<HashMap<String, broadcast::Sender<MessageSizeEvent>>>>`, lazy consumer spawn
+- **TopicManager**: `Arc<RwLock<HashMap<String, broadcast::Sender<MessageSizeEvent>>>>`, lazy consumer spawn, subscribe() accepts StartPosition
 - **SharedAdminConsumer**: `Arc<Mutex<BaseConsumer>>` with `web::block` for metadata ops
 - **SharedMongoStore**: `Option<Arc<MongoStore>>` — initialized if `--mongo-uri` is provided
 - **WebSocket**: `actix_ws::Message` + `tokio::select!` multiplexing (broadcast rx + client msgs + heartbeat)
 - **Feature flags**: `static-kafka` (cmake-build, default) / `dynamic-kafka` (dynamic-linking)
 
-### Background Tasks (3)
+### Background Tasks (4)
 1. **Stats broadcaster** (1s): reads all stats -> broadcasts WsMessage::StatsUpdate
 2. **Minute aggregator** (60s): snapshots stats -> appends to TimeSeriesStorage
 3. **Topic auto-discovery** (30s): lists topics from admin consumer -> subscribes new ones
+4. **Lag collector** (10s): fetch_consumer_lag -> LagTimeSeries
 
 ### Data Flow
 ```
-Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= warning threshold)
+Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset)
+  -> payload.len() + optional raw capture (if >= warning threshold)
   -> broadcast::Sender<MessageSizeEvent>
   -> Event Processor Task:
       -> StatsEngine.record_event() (running stats + reservoir)
@@ -86,7 +88,7 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 | `/` | GET | Serve embedded HTML |
 | `/api/topics` | GET | List topics + summary stats + alert status |
 | `/api/topics/available` | GET | List all available Kafka topics for selection |
-| `/api/topics/toggle` | POST | Enable/disable topic monitoring |
+| `/api/topics/toggle` | POST | Enable/disable topic monitoring (with optional `start_from` position) |
 | `/api/stats/{topic}` | GET | Detailed TopicStats (count, avg, min, max, p50/p95/p99, rates) |
 | `/api/alerts` | GET | Recent alerts (query: ?limit=N) |
 | `/api/alerts/download/{id}` | GET | Download captured oversized message payload (.bin) |
@@ -109,24 +111,25 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 | `/ws/live` | GET | WebSocket stream (SizeEvent + StatsUpdate + Alert) |
 
 ## Frontend
-- **3 themes**: Terminal/Chalk (default), Tokyo Night, Dracula — via CSS `[data-theme="..."]` attribute selectors, theme switcher in header, localStorage persistence
+- **4 themes**: Terminal/Chalk (default), Tokyo Night, Dracula, Light — via CSS `[data-theme="..."]` attribute selectors, theme switcher in header, localStorage persistence
 - **CSS variables**: --bg:#0d1117, --surface:#161b22, --green:#50fa7b, --red:#ff5555, --yellow:#f1fa8c, --cyan:#8be9fd, --magenta:#ff79c6
 - **Font**: JetBrains Mono / Fira Code / monospace
-- **Effects**: scanline overlay, CRT text glow (text-shadow), blinking cursor
-- **Layout**: Resizable panels — vertical sidebar (default 280px, drag-to-resize) + 2 rows of 2 panels + global panel. All dividers (sidebar/columns/rows) are draggable via `.resize-handle-v`/`.resize-handle-h` with cyan highlight on hover. Structure: `.panels-area` (flex-row) > sidebar + resize-handle + `.panels-wrap` (flex-column) > `.panel-row` containers with column resize handles between left/right panels
-- **Topic selection**: Startup picker overlay, localStorage persistence for selected topics
+- **Effects**: scanline overlay (disabled in light theme), CRT text glow (text-shadow), blinking cursor
+- **Layout**: Resizable panels — vertical sidebar (default 280px, drag-to-resize) + 2 rows of 2 panels + global panel. All dividers (sidebar/columns/rows) are draggable via `.resize-handle-v`/`.resize-handle-h` with cyan highlight on hover
+- **Topic selection**: Startup picker overlay with "Start From" position selector (Latest/Beginning/Timestamp/Offset), localStorage persistence for selected topics
 - **Topic sorting**: Sidebar topics sorted by avg_bytes descending (largest first), color-coded borders: green (healthy), yellow (warning), red blinking (critical/`priority-alert`)
+- **Topic names**: White/bright contrasting color with subtle text-shadow glow
 - **Enhanced alerts**: Time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery**: Popover UI with click-to-connect
-- **Cluster insights**: Full-screen overlay with tables, lag bars, recommendation cards, auto-refresh every 5s while open (real-time consumer lag), lag time-series chart (per-topic + total, crosshair hover)
+- **Cluster insights**: Full-screen overlay with tables, lag bars (top panel), recommendation cards, auto-refresh every 5s while open (real-time consumer lag), lag time-series chart (per-topic + total, crosshair hover)
 - **Health report**: Full-screen overlay with per-topic health cards, plain-English abnormality descriptions (threshold breaches, spike detection, p99 analysis, spread analysis, alert activity), alert summary table, auto-refresh every 5s, severity-sorted (critical first)
 - **History Browser**: Full-screen overlay with 3 tabs (messages browse + global snapshot + persisted data), message detail sidebar, pagination
 - **Historical play presets**: `?preset=beginning|1h|1d|latest` param for quick browsing
 - **Chart**: Lightweight Canvas-based line chart (no external lib), auto-scaling, cyan line (no area fill)
 - **Chart type selector**: All mini-charts have a line/area/bar toggle (`.chart-type-toggle`). State: `feedChartTypeMode` and `alertChartTypeMode` (default: 'line')
-- **Live feed mini-chart**: Dual-axis timeseries (avg size cyan line + msg/s magenta dashed line), per-second rolling buffer (120 pts), crosshair hover with tooltip. Switchable modes: live | 1h | 6h | 24h | 7d — historical mode shows multi-topic colored lines from `/api/history/{topic}?range=...`
-- **Alerts mini-chart**: Dual-line chart (warnings yellow + criticals red), per-10-second buckets, crosshair hover with tooltip. Switchable modes: live | 1h | 6h | all — historical mode aggregates `state.alerts` into time buckets from `/api/alerts?limit=1000`. Bar mode available via chart type toggle
-- **Global history chart**: Dual-axis per topic — left Y: avg_bytes (solid colored lines), right Y: message_count (dashed colored lines). Crosshair hover with per-topic tooltip sorted by avg_bytes descending. Legend indicates solid=size, dashed=count
+- **Live feed mini-chart**: Dual-axis timeseries (avg size cyan line + msg/s magenta dashed line), per-second rolling buffer (120 pts), crosshair hover with tooltip. Switchable modes: live | 1h | 6h | 24h | 7d
+- **Alerts mini-chart**: Dual-line chart (warnings yellow + criticals red), per-10-second buckets, crosshair hover. Switchable modes: live | 1h | 6h | all
+- **Global history chart**: Dual-axis per topic — left Y: avg_bytes (solid colored lines), right Y: message_count (dashed colored lines). Crosshair hover with per-topic tooltip
 - **WebSocket**: auto-reconnect with exponential backoff
 
 ## MongoDB Persistence
@@ -138,9 +141,9 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 - **Endpoints**: `/api/persisted/messages`, `/api/persisted/alerts`, `/api/persisted/status`
 - **Docker**: mongo:7 container with volume in docker-compose.full.yml
 
-## Tests (73 total)
+## Tests (79 total)
 - `config::tests` (2): default values, args override
-- `models::tests` (20): WsMessage serialization, AlertSeverity serde, AlertConfigRequest deser, AlertStatus ser, HistoryDataPoint roundtrip, HistoricalMessage ser, BrowseMessagesResponse ser, GlobalSnapshotResponse ser, MessagePayload ser, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, ClusterInsightsResponse, BrowseQueryParams with preset, PartitionLag, TopicThroughput, AlertDefaultsResponse ser, AlertDefaultsRequest deser
+- `models::tests` (26): WsMessage serialization, AlertSeverity serde, AlertConfigRequest deser, AlertStatus ser, HistoryDataPoint roundtrip, HistoricalMessage ser, BrowseMessagesResponse ser, GlobalSnapshotResponse ser, MessagePayload ser, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, ClusterInsightsResponse, BrowseQueryParams with preset, PartitionLag, TopicThroughput, AlertDefaultsResponse ser, AlertDefaultsRequest deser, StartPosition latest/beginning/timestamp/offset serde, TopicToggleRequest with/without start_from
 - `handlers::history::tests` (1): parse_range
 - `kafka::browser::tests` (5): encode_payload_utf8, encode_payload_binary, encode_payload_truncation, encode_payload_no_truncation, uuid_simple_unique
 - `tracker::stats::tests` (13): empty stats, single event, running average, min/max, percentiles (symmetric), reservoir bounds, multi-topic, get_all, snapshot/reset, empty snapshot, clear, percentiles empty/single

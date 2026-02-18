@@ -270,11 +270,23 @@ pub struct SnapshotQueryParams {
 //   TOPIC SELECTION TYPES
 // ═══════════════════════════════════════════════════════════════════
 
+/// Where to start consuming a topic from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum StartPosition {
+    Latest,
+    Beginning,
+    Timestamp { value: String },
+    Offset { partition: i32, offset: i64 },
+}
+
 /// Request to toggle topics on/off for monitoring.
 #[derive(Debug, Deserialize)]
 pub struct TopicToggleRequest {
     pub topics: Vec<String>,
     pub enabled: bool,
+    #[serde(default)]
+    pub start_from: Option<StartPosition>,
 }
 
 /// Response with available and tracked topics.
@@ -681,5 +693,60 @@ mod tests {
         let req: AlertDefaultsRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.warning_threshold, Some(500000));
         assert!(req.critical_threshold.is_none());
+    }
+
+    #[test]
+    fn test_start_position_latest_serde() {
+        let pos = StartPosition::Latest;
+        let json = serde_json::to_string(&pos).unwrap();
+        assert!(json.contains(r#""type":"latest""#));
+        let decoded: StartPosition = serde_json::from_str(&json).unwrap();
+        assert!(matches!(decoded, StartPosition::Latest));
+    }
+
+    #[test]
+    fn test_start_position_beginning_serde() {
+        let json = r#"{"type":"beginning"}"#;
+        let pos: StartPosition = serde_json::from_str(json).unwrap();
+        assert!(matches!(pos, StartPosition::Beginning));
+    }
+
+    #[test]
+    fn test_start_position_timestamp_serde() {
+        let json = r#"{"type":"timestamp","value":"2026-01-15T10:30:00Z"}"#;
+        let pos: StartPosition = serde_json::from_str(json).unwrap();
+        match pos {
+            StartPosition::Timestamp { value } => assert_eq!(value, "2026-01-15T10:30:00Z"),
+            _ => panic!("Expected Timestamp variant"),
+        }
+    }
+
+    #[test]
+    fn test_start_position_offset_serde() {
+        let json = r#"{"type":"offset","partition":2,"offset":1000}"#;
+        let pos: StartPosition = serde_json::from_str(json).unwrap();
+        match pos {
+            StartPosition::Offset { partition, offset } => {
+                assert_eq!(partition, 2);
+                assert_eq!(offset, 1000);
+            }
+            _ => panic!("Expected Offset variant"),
+        }
+    }
+
+    #[test]
+    fn test_topic_toggle_request_with_start_from() {
+        let json = r#"{"topics":["orders"],"enabled":true,"start_from":{"type":"beginning"}}"#;
+        let req: TopicToggleRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.topics, vec!["orders"]);
+        assert!(req.enabled);
+        assert!(matches!(req.start_from, Some(StartPosition::Beginning)));
+    }
+
+    #[test]
+    fn test_topic_toggle_request_without_start_from() {
+        let json = r#"{"topics":["orders","users"],"enabled":true}"#;
+        let req: TopicToggleRequest = serde_json::from_str(json).unwrap();
+        assert!(req.start_from.is_none());
     }
 }
