@@ -421,6 +421,14 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   0%, 100% { box-shadow: none; }
   50% { box-shadow: 0 0 10px rgba(241,250,140,0.15); }
 }
+.topic-card.alert-recovered {
+  border-left: 3px solid var(--cyan);
+  animation: pulse-cyan 2s ease-in-out infinite;
+}
+@keyframes pulse-cyan {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 10px rgba(139,233,253,0.15); }
+}
 
 .topic-name { color: var(--orange); font-weight: 700; font-size: 14px; margin-bottom: 6px; letter-spacing: 0.3px; }
 .topic-metric {
@@ -448,6 +456,7 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
 .topic-status.healthy { background: rgba(80,250,123,0.15); color: var(--green); }
 .topic-status.warning { background: rgba(241,250,140,0.15); color: var(--yellow); }
 .topic-status.critical { background: rgba(255,85,85,0.15); color: var(--red); }
+.topic-status.recovered { background: rgba(139,233,253,0.15); color: var(--cyan); }
 .topic-status.unknown { background: rgba(107,122,141,0.15); color: var(--text-dim); }
 
 .topic-card-expanded {
@@ -1744,6 +1753,8 @@ const state = {
   alertWindowMinutes: 0,
   alertDefaults: { warning: 1048576, critical: 10485760 },
   alertConfigs: {},  // per-topic: { topic: { warning, critical } }
+  topicPeakStatus: {},  // per-topic: 'critical' | 'warning' — tracks worst seen for recovered state
+  topicRecoveredAt: {},  // per-topic: timestamp when topic entered recovered state
 };
 
 const MAX_FEED = 200;
@@ -1971,6 +1982,62 @@ function getTopicAvgSize(topic) {
   return s ? s.avg_bytes : -1;
 }
 
+// 4-state topic status: critical(3) > warning(2) > recovered(1) > ok(0) > no-stats(-1)
+// - critical/warning: current rate-window avg exceeds thresholds
+// - recovered: was critical/warning but current avg is now below threshold (transitions to ok after 30s)
+// - ok: healthy, never breached or fully cleared
+function getTopicStatus(topic) {
+  const s = state.stats[topic];
+  if (!s) return 'unknown';
+  const threshold = getTopicThreshold(topic);
+  const recentAvg = getTopicRecentAvg(topic);
+  const sc = sizeClass(recentAvg, threshold);
+
+  if (sc === 'red') {
+    state.topicPeakStatus[topic] = 'critical';
+    delete state.topicRecoveredAt[topic];
+    return 'critical';
+  }
+  if (sc === 'yellow') {
+    if (state.topicPeakStatus[topic] !== 'critical') state.topicPeakStatus[topic] = 'warning';
+    delete state.topicRecoveredAt[topic];
+    return 'warning';
+  }
+
+  // Current is green — check if recovering from a previous breach
+  const peak = state.topicPeakStatus[topic];
+  if (peak) {
+    if (!state.topicRecoveredAt[topic]) {
+      state.topicRecoveredAt[topic] = Date.now();
+    }
+    // Stay in recovered state for 30 seconds, then transition to ok
+    if (Date.now() - state.topicRecoveredAt[topic] < 30000) {
+      return 'recovered';
+    }
+    // Transition complete — clear peak
+    delete state.topicPeakStatus[topic];
+    delete state.topicRecoveredAt[topic];
+  }
+  return 'ok';
+}
+
+function getTopicPriorityFromStatus(status) {
+  switch (status) {
+    case 'critical': return 3;
+    case 'warning': return 2;
+    case 'recovered': return 1;
+    case 'ok': return 0;
+    default: return -1;
+  }
+}
+
+// Recent average: bytes_per_sec / messages_per_sec gives the avg size in the rate window
+function getTopicRecentAvg(topic) {
+  const s = state.stats[topic];
+  if (!s || s.messages_per_sec <= 0) return s ? s.avg_bytes : -1;
+  return s.bytes_per_sec / s.messages_per_sec;
+}
+
 function renderTopicList() {
   const list = document.getElementById('topicList');
   if (state.topics.length === 0) {
@@ -1978,10 +2045,14 @@ function renderTopicList() {
     return;
   }
 
-  // Sort by average message size descending; topics without stats go last
+  // Sort by: 1) status priority (critical > warning > recovered > ok > unknown)
+  //          2) recent average size descending within same priority
   const sortedTopics = [...state.topics].sort((a, b) => {
-    const sa = getTopicAvgSize(a);
-    const sb = getTopicAvgSize(b);
+    const pa = getTopicPriorityFromStatus(getTopicStatus(a));
+    const pb = getTopicPriorityFromStatus(getTopicStatus(b));
+    if (pa !== pb) return pb - pa;
+    const sa = getTopicRecentAvg(a);
+    const sb = getTopicRecentAvg(b);
     if (sa !== sb) return sb - sa;
     return a.localeCompare(b);
   });
@@ -1996,14 +2067,18 @@ function renderTopicList() {
 
     if (s) {
       const threshold = getTopicThreshold(topic);
-      const sc = sizeClass(s.avg_bytes, threshold);
-      if (sc === 'red') {
+      const recentAvg = getTopicRecentAvg(topic);
+      const topicStatus = getTopicStatus(topic);
+      if (topicStatus === 'critical') {
         alertClass = ' alert-critical';
         priorityClass = ' priority-alert';
         statusHtml = '<span class="topic-status critical">CRIT</span>';
-      } else if (sc === 'yellow') {
+      } else if (topicStatus === 'warning') {
         alertClass = ' alert-warning';
         statusHtml = '<span class="topic-status warning">WARN</span>';
+      } else if (topicStatus === 'recovered') {
+        alertClass = ' alert-recovered';
+        statusHtml = '<span class="topic-status recovered">RECV</span>';
       } else {
         alertClass = ' alert-healthy';
         statusHtml = '<span class="topic-status healthy">OK</span>';
@@ -2013,7 +2088,7 @@ function renderTopicList() {
         ${statusHtml}
         <div class="topic-name">${topic}</div>
         <div class="topic-metric"><span>msg/s</span><span class="value">${formatRate(s.messages_per_sec)}</span></div>
-        <div class="topic-metric"><span>avg</span><span class="value ${sizeClass(s.avg_bytes, threshold)}">${formatBytes(s.avg_bytes)}</span></div>
+        <div class="topic-metric"><span>avg</span><span class="value ${sizeClass(recentAvg, threshold)}">${formatBytes(s.avg_bytes)}</span></div>
         <div class="topic-metric"><span>max</span><span class="value ${sizeClass(s.max_bytes, threshold)}">${formatBytes(s.max_bytes)}</span></div>
         <div class="topic-metric"><span>count</span><span class="value">${s.message_count.toLocaleString()}</span></div>
         <div class="topic-card-expanded">
