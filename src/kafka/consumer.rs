@@ -44,9 +44,40 @@ pub async fn run_size_tracking_consumer(
         }
     };
 
-    // For Timestamp and Offset start positions, use assign() instead of subscribe()
-    // to get deterministic partition assignment and seeking.
+    // For non-latest start positions, use assign() instead of subscribe()
+    // to bypass consumer group offset management and get deterministic seeking.
     match &start_position {
+        Some(StartPosition::Beginning) => {
+            // Use assign() with Beginning offset to bypass committed offsets
+            let metadata = match consumer.fetch_metadata(Some(&topic), Duration::from_secs(10)) {
+                Ok(m) => m,
+                Err(e) => {
+                    log::error!("Failed to fetch metadata for topic {}: {}", topic, e);
+                    return;
+                }
+            };
+            let partition_count = metadata
+                .topics()
+                .iter()
+                .find(|t| t.name() == topic)
+                .map(|t| t.partitions().len() as i32)
+                .unwrap_or(0);
+
+            if partition_count == 0 {
+                log::warn!("No partitions found for topic {}", topic);
+                return;
+            }
+
+            let mut tpl = TopicPartitionList::new();
+            for p in 0..partition_count {
+                let _ = tpl.add_partition_offset(&topic, p, Offset::Beginning);
+            }
+            if let Err(e) = consumer.assign(&tpl) {
+                log::error!("Failed to assign partitions for topic {}: {}", topic, e);
+                return;
+            }
+            log::info!("Started size-tracking consumer for topic: {} (from beginning, {} partitions)", topic, partition_count);
+        }
         Some(StartPosition::Timestamp { value }) => {
             let ts = match value.parse::<DateTime<Utc>>() {
                 Ok(dt) => dt,
@@ -126,16 +157,12 @@ pub async fn run_size_tracking_consumer(
             log::info!("Started size-tracking consumer for topic: {} (from partition {} offset {})", topic, partition, offset);
         }
         _ => {
-            // Latest or Beginning — use subscribe() for normal consumer group behavior
+            // Latest / None — use subscribe() for normal consumer group behavior
             if let Err(e) = consumer.subscribe(&[&topic]) {
                 log::error!("Failed to subscribe to topic {}: {}", topic, e);
                 return;
             }
-            let pos_name = match &start_position {
-                Some(StartPosition::Beginning) => "beginning",
-                _ => "latest",
-            };
-            log::info!("Started size-tracking consumer for topic: {} (from {})", topic, pos_name);
+            log::info!("Started size-tracking consumer for topic: {} (from latest)", topic);
         }
     }
 

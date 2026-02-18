@@ -24,10 +24,13 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::JoinHandle;
 
-/// Per-topic consumer state: broadcast channel + task handle for cleanup.
+/// Per-topic consumer state: broadcast channel + task handles for cleanup.
 struct TopicConsumer {
     tx: broadcast::Sender<MessageSizeEvent>,
-    task_handle: JoinHandle<()>,
+    /// Outer event-processing task handle.
+    processor_handle: JoinHandle<()>,
+    /// Inner Kafka consumer task handle (shared so outer can abort it on cleanup).
+    kafka_handle: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
 }
 
 /// Manages per-topic Kafka consumers and broadcast channels.
@@ -77,11 +80,20 @@ impl TopicManager {
             log::info!("Re-creating consumer for topic {} with start position {:?}", topic, start_position);
         }
         if let Some(old) = consumers.remove(topic) {
-            old.task_handle.abort();
+            // Abort both tasks: processor + kafka consumer
+            old.processor_handle.abort();
+            if let Some(kh) = old.kafka_handle.lock().await.take() {
+                kh.abort();
+            }
         }
 
         // Create a new broadcast channel for this topic
         let (tx, rx) = broadcast::channel::<MessageSizeEvent>(1024);
+
+        // Shared slot for the inner kafka consumer handle
+        let kafka_handle_slot: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
+        let kafka_handle_for_task = kafka_handle_slot.clone();
 
         // Spawn the consumer task
         let brokers = self.brokers.read().await.clone();
@@ -94,7 +106,7 @@ impl TopicManager {
         let consumer_alerts = self.alert_engine.clone();
         let mongo = self.mongo_store.clone();
 
-        let task_handle = tokio::spawn(async move {
+        let processor_handle = tokio::spawn(async move {
             let mut event_rx = event_tx.subscribe();
 
             // Spawn the actual Kafka consumer (reads threshold dynamically from AlertEngine)
@@ -110,6 +122,9 @@ impl TopicManager {
                 )
                 .await;
             });
+
+            // Store the kafka handle so it can be aborted externally
+            *kafka_handle_for_task.lock().await = Some(kafka_handle);
 
             // Process events: feed into stats + alerts + ws broadcast
             loop {
@@ -198,12 +213,13 @@ impl TopicManager {
                     }
                 }
             }
-
-            // Clean up inner kafka consumer if event processing ended
-            kafka_handle.abort();
         });
 
-        consumers.insert(topic.to_string(), TopicConsumer { tx: tx.clone(), task_handle });
+        consumers.insert(topic.to_string(), TopicConsumer {
+            tx: tx.clone(),
+            processor_handle,
+            kafka_handle: kafka_handle_slot,
+        });
 
         rx
     }
@@ -219,7 +235,10 @@ impl TopicManager {
     async fn clear(&self) {
         let mut consumers = self.consumers.write().await;
         for (_, consumer) in consumers.drain() {
-            consumer.task_handle.abort();
+            consumer.processor_handle.abort();
+            if let Some(kh) = consumer.kafka_handle.lock().await.take() {
+                kh.abort();
+            }
         }
     }
 }
