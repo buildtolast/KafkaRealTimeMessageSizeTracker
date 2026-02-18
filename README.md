@@ -136,6 +136,7 @@ The dashboard uses a vertical sidebar (280px left) with expandable topic cards a
 | `/api/browse/{topic}/download/{partition}/{offset}` | GET | Download full message payload at a specific partition/offset |
 | `/api/snapshot` | GET | Global dashboard snapshot at a timestamp (`?timestamp=ISO8601`) |
 | `/api/cluster/insights` | GET | Cluster insights: brokers, topics, partitions, consumer lag, throughput, recommendations |
+| `/api/cluster/lag-history` | GET | Consumer lag time-series data (10-sec intervals, 1 hour rolling window) |
 | `/api/persisted/messages` | GET | Query persisted oversized messages from MongoDB |
 | `/api/persisted/alerts` | GET | Query persisted alerts from MongoDB |
 | `/api/persisted/status` | GET | MongoDB persistence status (connected, collection counts) |
@@ -177,6 +178,7 @@ Kafka Topic
       -> Stats Broadcaster (1s)        (all stats -> WebSocket)
       -> Minute Aggregator (60s)       (snapshot -> TimeSeriesStorage)
       -> Topic Auto-Discovery (30s)    (admin consumer -> subscribe new topics)
+      -> Lag Collector (10s)           (fetch_consumer_lag -> LagTimeSeries)
 ```
 
 ### Project Structure
@@ -238,6 +240,7 @@ The cluster insights feature (`GET /api/cluster/insights`) provides a comprehens
 - **Brokers** — list of all brokers with IDs and host:port addresses
 - **Topics and Partitions** — topic count, total partitions, partition distribution
 - **Consumer Lag** — per-partition lag for tracked consumer groups, visualized as lag bars
+- **Consumer Lag Time-Series** — real-time chart showing per-topic and total lag over time (10-sec intervals, 1-hour rolling window), with crosshair hover tooltip showing current offset and log end offset
 - **Throughput** — messages/sec and bytes/sec per topic
 - **Recommendations** — actionable suggestions based on lag, throughput patterns, and partition distribution
 
@@ -283,7 +286,7 @@ Two-stage build for minimal runtime image:
 cargo test
 ```
 
-**70 tests** across all modules:
+**73 tests** across all modules:
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
@@ -293,7 +296,7 @@ cargo test
 | `kafka::browser` | 5 | Payload encoding (UTF-8/binary/truncation), unique ID generation |
 | `tracker::stats` | 13 | Running stats, reservoir sampling, percentiles, rates, snapshots |
 | `tracker::alerts` | 11 | Threshold checks, circular buffer, per-topic config, enable/disable, capture store/eviction |
-| `storage` | 11 | Circular buffer, range queries, eviction, multi-topic independence, snapshot_at |
+| `storage` | 14 | Circular buffer, range queries, eviction, multi-topic independence, snapshot_at, lag timeseries (append, eviction, clear) |
 | `mongo` | 4 | PersistedMessage ser/deser, PersistedAlert ser/deser |
 
 ## Tech Stack

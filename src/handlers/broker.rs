@@ -1,5 +1,6 @@
 use crate::kafka::admin;
-use crate::models::{BrokerRequest, BrokerResponse};
+use crate::models::{BrokerRequest, BrokerResponse, LagHistoryResponse};
+use crate::storage::LagTimeSeries;
 use crate::tracker::stats::StatsEngine;
 use actix_web::{web, HttpResponse};
 use rdkafka::consumer::BaseConsumer;
@@ -67,6 +68,12 @@ pub async fn discover_brokers(
             "error": format!("Blocking error: {}", e)
         })),
     }
+}
+
+/// GET /api/cluster/lag-history — consumer lag time-series data.
+pub async fn get_lag_history(lag_timeseries: web::Data<LagTimeSeries>) -> HttpResponse {
+    let points = lag_timeseries.get_all().await;
+    HttpResponse::Ok().json(LagHistoryResponse { points })
 }
 
 /// GET /api/cluster/insights — full cluster insights with lag, throughput, and recommendations.

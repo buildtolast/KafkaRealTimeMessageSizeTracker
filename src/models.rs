@@ -346,6 +346,31 @@ pub struct ClusterInsightsResponse {
     pub recommendations: Vec<ThroughputRecommendation>,
 }
 
+/// A single lag time-series data point: per-topic aggregated lag at a moment in time.
+#[derive(Debug, Clone, Serialize)]
+pub struct LagDataPoint {
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Per-topic total lag (summed across all partitions).
+    pub topic_lags: Vec<TopicLag>,
+    /// Total lag across all topics.
+    pub total_lag: i64,
+}
+
+/// Per-topic lag aggregate.
+#[derive(Debug, Clone, Serialize)]
+pub struct TopicLag {
+    pub topic: String,
+    pub lag: i64,
+    pub current_offset: i64,
+    pub log_end_offset: i64,
+}
+
+/// Response for lag history endpoint.
+#[derive(Debug, Serialize)]
+pub struct LagHistoryResponse {
+    pub points: Vec<LagDataPoint>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -102,6 +102,7 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 | `/api/browse/{topic}/download/{partition}/{offset}` | GET | Download full message payload at specific offset |
 | `/api/snapshot` | GET | Global dashboard snapshot at timestamp (query: ?timestamp) |
 | `/api/cluster/insights` | GET | Cluster insights: brokers, topics, partitions, consumer lag, throughput, recommendations |
+| `/api/cluster/lag-history` | GET | Consumer lag time-series data (10-sec intervals, 1 hour) |
 | `/api/persisted/messages` | GET | Query persisted oversized messages from MongoDB |
 | `/api/persisted/alerts` | GET | Query persisted alerts from MongoDB |
 | `/api/persisted/status` | GET | MongoDB persistence status (connected, collection counts) |
@@ -114,10 +115,10 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 - **Effects**: scanline overlay, CRT text glow (text-shadow), blinking cursor
 - **Layout**: Resizable panels — vertical sidebar (default 280px, drag-to-resize) + 2 rows of 2 panels + global panel. All dividers (sidebar/columns/rows) are draggable via `.resize-handle-v`/`.resize-handle-h` with cyan highlight on hover. Structure: `.panels-area` (flex-row) > sidebar + resize-handle + `.panels-wrap` (flex-column) > `.panel-row` containers with column resize handles between left/right panels
 - **Topic selection**: Startup picker overlay, localStorage persistence for selected topics
-- **Topic sorting**: Sidebar topics sorted by avg_bytes descending (largest first), red blinking border (`priority-alert`) for topics exceeding per-topic or global alert thresholds
+- **Topic sorting**: Sidebar topics sorted by avg_bytes descending (largest first), color-coded borders: green (healthy), yellow (warning), red blinking (critical/`priority-alert`)
 - **Enhanced alerts**: Time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery**: Popover UI with click-to-connect
-- **Cluster insights**: Full-screen overlay with tables, lag bars, recommendation cards, auto-refresh every 5s while open (real-time consumer lag)
+- **Cluster insights**: Full-screen overlay with tables, lag bars, recommendation cards, auto-refresh every 5s while open (real-time consumer lag), lag time-series chart (per-topic + total, crosshair hover)
 - **History Browser**: Full-screen overlay with 3 tabs (messages browse + global snapshot + persisted data), message detail sidebar, pagination
 - **Historical play presets**: `?preset=beginning|1h|1d|latest` param for quick browsing
 - **Chart**: Lightweight Canvas-based line chart (no external lib), auto-scaling, cyan line (no area fill)
@@ -136,14 +137,14 @@ Kafka Topic -> StreamConsumer -> payload.len() + optional raw capture (if >= war
 - **Endpoints**: `/api/persisted/messages`, `/api/persisted/alerts`, `/api/persisted/status`
 - **Docker**: mongo:7 container with volume in docker-compose.full.yml
 
-## Tests (70 total)
+## Tests (73 total)
 - `config::tests` (2): default values, args override
 - `models::tests` (20): WsMessage serialization, AlertSeverity serde, AlertConfigRequest deser, AlertStatus ser, HistoryDataPoint roundtrip, HistoricalMessage ser, BrowseMessagesResponse ser, GlobalSnapshotResponse ser, MessagePayload ser, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, ClusterInsightsResponse, BrowseQueryParams with preset, PartitionLag, TopicThroughput, AlertDefaultsResponse ser, AlertDefaultsRequest deser
 - `handlers::history::tests` (1): parse_range
 - `kafka::browser::tests` (5): encode_payload_utf8, encode_payload_binary, encode_payload_truncation, encode_payload_no_truncation, uuid_simple_unique
 - `tracker::stats::tests` (13): empty stats, single event, running average, min/max, percentiles (symmetric), reservoir bounds, multi-topic, get_all, snapshot/reset, empty snapshot, clear, percentiles empty/single
 - `tracker::alerts::tests` (14): no alert, warning, critical, circular buffer, custom threshold, disabled, defaults, ID increment, capture stored, capture eviction, capture missing returns none, set_defaults_changes_runtime, get_capture_threshold_per_topic, get_capture_threshold_after_set_defaults
-- `storage::tests` (11): append/query, range filtering, circular eviction, empty topic, multi-topic, get_topics, clear, snapshot_at_exact_match, snapshot_at_finds_closest, snapshot_at_multiple_topics, snapshot_at_no_data
+- `storage::tests` (14): append/query, range filtering, circular eviction, empty topic, multi-topic, get_topics, clear, snapshot_at_exact_match, snapshot_at_finds_closest, snapshot_at_multiple_topics, snapshot_at_no_data, lag_timeseries_append_and_get, lag_timeseries_eviction, lag_timeseries_clear
 - `mongo::tests` (4): PersistedMessage ser/deser, PersistedAlert ser/deser
 
 ## Docker

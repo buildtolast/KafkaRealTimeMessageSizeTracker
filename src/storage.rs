@@ -1,4 +1,4 @@
-use crate::models::HistoryDataPoint;
+use crate::models::{HistoryDataPoint, LagDataPoint};
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -92,6 +92,44 @@ impl TimeSeriesStorage {
     }
 
     /// Clear all history (e.g., on broker change).
+    pub async fn clear(&self) {
+        let mut data = self.data.write().await;
+        data.clear();
+    }
+}
+
+/// Maximum lag data points (10-second intervals, 1 hour = 360 points).
+const MAX_LAG_POINTS: usize = 360;
+
+/// In-memory time-series storage for consumer lag snapshots.
+#[derive(Clone)]
+pub struct LagTimeSeries {
+    data: Arc<RwLock<VecDeque<LagDataPoint>>>,
+}
+
+impl LagTimeSeries {
+    pub fn new() -> Self {
+        Self {
+            data: Arc::new(RwLock::new(VecDeque::with_capacity(MAX_LAG_POINTS))),
+        }
+    }
+
+    /// Append a lag data point. Evicts oldest if exceeding capacity.
+    pub async fn append(&self, point: LagDataPoint) {
+        let mut data = self.data.write().await;
+        if data.len() >= MAX_LAG_POINTS {
+            data.pop_front();
+        }
+        data.push_back(point);
+    }
+
+    /// Get all lag data points.
+    pub async fn get_all(&self) -> Vec<LagDataPoint> {
+        let data = self.data.read().await;
+        data.iter().cloned().collect()
+    }
+
+    /// Clear all lag history.
     pub async fn clear(&self) {
         let mut data = self.data.write().await;
         data.clear();
@@ -267,5 +305,75 @@ mod tests {
         let storage = TimeSeriesStorage::new();
         let result = storage.snapshot_at(Utc::now()).await;
         assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_lag_timeseries_append_and_get() {
+        use crate::models::{LagDataPoint, TopicLag};
+
+        let lag_ts = LagTimeSeries::new();
+        let point = LagDataPoint {
+            timestamp: Utc::now(),
+            topic_lags: vec![TopicLag {
+                topic: "orders".into(),
+                lag: 50,
+                current_offset: 100,
+                log_end_offset: 150,
+            }],
+            total_lag: 50,
+        };
+        lag_ts.append(point).await;
+
+        let all = lag_ts.get_all().await;
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].total_lag, 50);
+        assert_eq!(all[0].topic_lags[0].topic, "orders");
+    }
+
+    #[tokio::test]
+    async fn test_lag_timeseries_eviction() {
+        use crate::models::{LagDataPoint, TopicLag};
+
+        let lag_ts = LagTimeSeries::new();
+        for i in 0..(MAX_LAG_POINTS + 10) as i64 {
+            lag_ts
+                .append(LagDataPoint {
+                    timestamp: Utc::now(),
+                    topic_lags: vec![TopicLag {
+                        topic: "t".into(),
+                        lag: i,
+                        current_offset: i,
+                        log_end_offset: i * 2,
+                    }],
+                    total_lag: i,
+                })
+                .await;
+        }
+
+        let all = lag_ts.get_all().await;
+        assert_eq!(all.len(), MAX_LAG_POINTS);
+        // First 10 should have been evicted
+        assert_eq!(all[0].total_lag, 10);
+    }
+
+    #[tokio::test]
+    async fn test_lag_timeseries_clear() {
+        use crate::models::{LagDataPoint, TopicLag};
+
+        let lag_ts = LagTimeSeries::new();
+        lag_ts
+            .append(LagDataPoint {
+                timestamp: Utc::now(),
+                topic_lags: vec![TopicLag {
+                    topic: "t".into(),
+                    lag: 10,
+                    current_offset: 0,
+                    log_end_offset: 10,
+                }],
+                total_lag: 10,
+            })
+            .await;
+        lag_ts.clear().await;
+        assert!(lag_ts.get_all().await.is_empty());
     }
 }

@@ -10,9 +10,9 @@ mod tracker;
 
 use crate::config::{AppConfig, Args};
 use crate::kafka::admin;
-use crate::models::{CapturedMessage, MessageSizeEvent, WsMessage};
+use crate::models::{CapturedMessage, LagDataPoint, MessageSizeEvent, TopicLag, WsMessage};
 use crate::mongo::{MongoStore, PersistedAlert, PersistedMessage, SharedMongoStore};
-use crate::storage::TimeSeriesStorage;
+use crate::storage::{LagTimeSeries, TimeSeriesStorage};
 use crate::tracker::alerts::AlertEngine;
 use crate::tracker::stats::StatsEngine;
 use actix_cors::Cors;
@@ -237,6 +237,7 @@ async fn main() -> std::io::Result<()> {
         config.default_critical_threshold,
     );
     let storage = TimeSeriesStorage::new();
+    let lag_timeseries = LagTimeSeries::new();
     let (ws_tx, _ws_rx) = broadcast::channel::<WsMessage>(4096);
 
     // Tracked topics set (for topic selection feature)
@@ -333,6 +334,52 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
+    // Background task: consumer lag collector (every 10 seconds)
+    let admin_for_lag = admin_consumer.clone();
+    let lag_ts_for_collector = lag_timeseries.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+            let consumer = admin_for_lag.clone();
+            let result = web::block(move || {
+                let consumer = consumer.blocking_lock();
+                admin::fetch_consumer_lag(&consumer)
+            })
+            .await;
+
+            if let Ok(Ok(partition_lags)) = result {
+                // Aggregate lag per topic
+                let mut topic_map: HashMap<String, (i64, i64, i64)> = HashMap::new();
+                for pl in &partition_lags {
+                    let entry = topic_map.entry(pl.topic.clone()).or_insert((0, 0, 0));
+                    entry.0 += pl.lag;
+                    entry.1 += pl.current_offset;
+                    entry.2 += pl.log_end_offset;
+                }
+
+                let total_lag: i64 = partition_lags.iter().map(|l| l.lag).sum();
+                let mut topic_lags: Vec<TopicLag> = topic_map
+                    .into_iter()
+                    .map(|(topic, (lag, current_offset, log_end_offset))| TopicLag {
+                        topic,
+                        lag,
+                        current_offset,
+                        log_end_offset,
+                    })
+                    .collect();
+                topic_lags.sort_by(|a, b| a.topic.cmp(&b.topic));
+
+                let point = LagDataPoint {
+                    timestamp: chrono::Utc::now(),
+                    topic_lags,
+                    total_lag,
+                };
+                lag_ts_for_collector.append(point).await;
+            }
+        }
+    });
+
     let bind_addr = format!("{}:{}", config.server_host, config.server_port);
     log::info!("Listening on http://{}", bind_addr);
 
@@ -353,6 +400,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(brokers_shared.clone()))
             .app_data(web::Data::new(tracked_topics.clone()))
             .app_data(web::Data::new(mongo_store.clone()))
+            .app_data(web::Data::new(lag_timeseries.clone()))
             .route("/", web::get().to(index))
             .route("/api/topics", web::get().to(handlers::topics::get_topics))
             .route(
@@ -401,6 +449,10 @@ async fn main() -> std::io::Result<()> {
             .route(
                 "/api/cluster/insights",
                 web::get().to(handlers::broker::get_cluster_insights),
+            )
+            .route(
+                "/api/cluster/lag-history",
+                web::get().to(handlers::broker::get_lag_history),
             )
             .route(
                 "/api/browse/{topic}",

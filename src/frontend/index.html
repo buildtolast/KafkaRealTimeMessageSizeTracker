@@ -360,6 +360,7 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   box-shadow: 0 0 8px rgba(139,233,253,0.15);
   padding: 14px;
 }
+.topic-card.alert-healthy { border-left: 3px solid var(--green); }
 .topic-card.alert-critical { border-left: 3px solid var(--red); }
 .topic-card.priority-alert {
   border: 2px solid var(--red);
@@ -1101,6 +1102,50 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
 .lag-low { background: var(--green); }
 .lag-medium { background: var(--yellow); }
 .lag-high { background: var(--red); }
+
+/* ── Lag Time-Series Chart ── */
+.lag-chart-container {
+  position: relative;
+  height: 220px;
+  cursor: crosshair;
+  margin-top: 8px;
+}
+.lag-chart-container canvas {
+  width: 100%;
+  height: 100%;
+}
+.lag-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+.lag-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+.lag-chart-legend-swatch {
+  width: 12px;
+  height: 3px;
+  border-radius: 1px;
+}
+.lag-chart-tooltip {
+  position: absolute;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text);
+  pointer-events: none;
+  display: none;
+  z-index: 10;
+  white-space: nowrap;
+  line-height: 1.6;
+}
 </style>
 </head>
 <body>
@@ -1759,6 +1804,7 @@ function renderTopicList() {
         alertClass = ' alert-warning';
         statusHtml = '<span class="topic-status warning">WARN</span>';
       } else {
+        alertClass = ' alert-healthy';
         statusHtml = '<span class="topic-status healthy">OK</span>';
       }
 
@@ -3129,6 +3175,15 @@ function renderInsights(data) {
     html += '</tbody></table></div>';
   }
 
+  // ── Consumer Lag Time-Series Chart ──
+  html += '<div class="insights-section">';
+  html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Consumer Lag Over Time</div>';
+  html += '<div id="lagChartLegend" class="lag-chart-legend"></div>';
+  html += '<div class="lag-chart-container" id="lagChartContainer">';
+  html += '<canvas id="lagChart"></canvas>';
+  html += '<div class="lag-chart-tooltip" id="lagChartTooltip"></div>';
+  html += '</div></div>';
+
   // ── Recommendations ──
   if (data.recommendations && data.recommendations.length > 0) {
     html += '<div class="insights-section">';
@@ -3148,6 +3203,206 @@ function renderInsights(data) {
   }
 
   body.innerHTML = html;
+
+  // Fetch and render lag time-series chart after DOM is ready
+  fetchAndRenderLagChart().then(() => setupLagChartHover());
+}
+
+const LAG_CHART_COLORS = ['#8be9fd', '#ff79c6', '#50fa7b', '#f1fa8c', '#ffb86c', '#ff5555', '#bd93f9', '#6272a4'];
+let cachedLagPoints = null;
+
+async function fetchAndRenderLagChart() {
+  try {
+    const res = await fetch('/api/cluster/lag-history');
+    if (!res.ok) return;
+    const data = await res.json();
+    cachedLagPoints = data.points;
+    renderLagChart(cachedLagPoints);
+  } catch (e) { /* ignore */ }
+}
+
+function renderLagChart(points) {
+  const canvas = document.getElementById('lagChart');
+  const container = document.getElementById('lagChartContainer');
+  const legendEl = document.getElementById('lagChartLegend');
+  if (!canvas || !container || points.length < 2) {
+    if (container) container.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:40px 0;font-size:12px">collecting lag data... (updates every 10s)</div>';
+    return;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = container.getBoundingClientRect();
+  const W = rect.width;
+  const H = rect.height;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // Collect all topics across all points
+  const topicSet = new Set();
+  for (const p of points) {
+    for (const tl of p.topic_lags) topicSet.add(tl.topic);
+  }
+  const topics = [...topicSet].sort();
+
+  // Build legend
+  let legendHtml = '';
+  topics.forEach((topic, idx) => {
+    const color = LAG_CHART_COLORS[idx % LAG_CHART_COLORS.length];
+    legendHtml += `<div class="lag-chart-legend-item"><div class="lag-chart-legend-swatch" style="background:${color}"></div>${topic}</div>`;
+  });
+  legendHtml += `<div class="lag-chart-legend-item"><div class="lag-chart-legend-swatch" style="background:var(--text-dim);height:2px;border-top:1px dashed var(--text-dim)"></div>total</div>`;
+  legendEl.innerHTML = legendHtml;
+
+  // Chart layout
+  const pad = { top: 12, right: 16, bottom: 28, left: 60 };
+  const chartW = W - pad.left - pad.right;
+  const chartH = H - pad.top - pad.bottom;
+
+  // Find max lag for Y scale
+  let maxLag = 1;
+  for (const p of points) {
+    if (p.total_lag > maxLag) maxLag = p.total_lag;
+    for (const tl of p.topic_lags) {
+      if (tl.lag > maxLag) maxLag = tl.lag;
+    }
+  }
+  maxLag = Math.ceil(maxLag * 1.1); // 10% headroom
+
+  const xScale = (i) => pad.left + (i / (points.length - 1)) * chartW;
+  const yScale = (val) => pad.top + chartH - (val / maxLag) * chartH;
+
+  // Clear
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = getCssVar('--border') || '#30363d';
+  ctx.lineWidth = 0.5;
+  const gridLines = 4;
+  for (let i = 0; i <= gridLines; i++) {
+    const y = pad.top + (i / gridLines) * chartH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    // Y labels
+    const val = maxLag * (1 - i / gridLines);
+    ctx.fillStyle = getCssVar('--text-muted') || '#6b7a8d';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(val >= 1000 ? (val / 1000).toFixed(1) + 'k' : Math.round(val).toString(), pad.left - 6, y + 3);
+  }
+
+  // X time labels
+  ctx.textAlign = 'center';
+  ctx.fillStyle = getCssVar('--text-muted') || '#6b7a8d';
+  const labelCount = Math.min(6, points.length);
+  for (let i = 0; i < labelCount; i++) {
+    const idx = Math.round(i * (points.length - 1) / (labelCount - 1));
+    const x = xScale(idx);
+    ctx.fillText(formatTime(points[idx].timestamp), x, H - 4);
+  }
+
+  // Draw per-topic lag lines
+  topics.forEach((topic, ti) => {
+    const color = LAG_CHART_COLORS[ti % LAG_CHART_COLORS.length];
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    let started = false;
+    points.forEach((p, i) => {
+      const tl = p.topic_lags.find(t => t.topic === topic);
+      const lag = tl ? tl.lag : 0;
+      const x = xScale(i);
+      const y = yScale(lag);
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+
+  // Draw total lag line (dashed)
+  ctx.strokeStyle = getCssVar('--text-dim') || '#8b949e';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = xScale(i);
+    const y = yScale(p.total_lag);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Hover crosshair
+  if (canvas._hovering && canvas._hoverX != null) {
+    const hx = canvas._hoverX;
+    if (hx >= pad.left && hx <= W - pad.right) {
+      const frac = (hx - pad.left) / chartW;
+      const idx = Math.round(frac * (points.length - 1));
+      const clampIdx = Math.max(0, Math.min(idx, points.length - 1));
+      const px = xScale(clampIdx);
+      const p = points[clampIdx];
+
+      // Crosshair line
+      ctx.strokeStyle = getCssVar('--text-dim') || '#8b949e';
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath(); ctx.moveTo(px, pad.top); ctx.lineTo(px, pad.top + chartH); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Tooltip
+      let tooltipHtml = `<div style="color:var(--text-muted)">${formatTime(p.timestamp)}</div>`;
+      // Sort topics by lag descending in tooltip
+      const sortedEntries = topics.map((topic, ti) => {
+        const tl = p.topic_lags.find(t => t.topic === topic);
+        return { topic, lag: tl ? tl.lag : 0, offset: tl ? tl.current_offset : 0, logEnd: tl ? tl.log_end_offset : 0, color: LAG_CHART_COLORS[ti % LAG_CHART_COLORS.length] };
+      }).sort((a, b) => b.lag - a.lag);
+      for (const e of sortedEntries) {
+        tooltipHtml += `<div><span style="color:${e.color}">${e.topic}:</span> lag ${e.lag.toLocaleString()} <span style="color:var(--text-muted);font-size:10px">(${e.offset.toLocaleString()} / ${e.logEnd.toLocaleString()})</span></div>`;
+      }
+      tooltipHtml += `<div style="color:var(--text-dim);border-top:1px solid var(--border);margin-top:2px;padding-top:2px">total: ${p.total_lag.toLocaleString()}</div>`;
+
+      // Dots
+      topics.forEach((topic, ti) => {
+        const tl = p.topic_lags.find(t => t.topic === topic);
+        const lag = tl ? tl.lag : 0;
+        ctx.fillStyle = LAG_CHART_COLORS[ti % LAG_CHART_COLORS.length];
+        ctx.beginPath(); ctx.arc(px, yScale(lag), 3, 0, Math.PI * 2); ctx.fill();
+      });
+      // Total dot
+      ctx.fillStyle = getCssVar('--text-dim') || '#8b949e';
+      ctx.beginPath(); ctx.arc(px, yScale(p.total_lag), 3, 0, Math.PI * 2); ctx.fill();
+
+      const tooltip = document.getElementById('lagChartTooltip');
+      if (tooltip) {
+        tooltip.innerHTML = tooltipHtml;
+        tooltip.style.display = 'block';
+        const tipX = px + 10 > W - 180 ? px - 190 : px + 10;
+        tooltip.style.left = tipX + 'px';
+        tooltip.style.top = '4px';
+      }
+    }
+  }
+}
+
+// Setup lag chart hover listeners after insights render
+function setupLagChartHover() {
+  const canvas = document.getElementById('lagChart');
+  const tooltip = document.getElementById('lagChartTooltip');
+  if (!canvas) return;
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    canvas._hoverX = e.clientX - rect.left;
+    canvas._hovering = true;
+    if (cachedLagPoints) renderLagChart(cachedLagPoints);
+  });
+  canvas.addEventListener('mouseleave', () => {
+    canvas._hovering = false;
+    if (tooltip) tooltip.style.display = 'none';
+    if (cachedLagPoints) renderLagChart(cachedLagPoints);
+  });
 }
 
 function insightCard(label, value, sub) {
