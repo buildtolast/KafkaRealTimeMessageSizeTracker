@@ -3185,36 +3185,6 @@ function renderInsights(data) {
   </div>`;
   html += '</div></div>';
 
-  // ── Broker Details ──
-  if (data.brokers && data.brokers.length > 0) {
-    html += '<div class="insights-section">';
-    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Broker Nodes</div>';
-    html += '<table class="insights-table"><thead><tr><th>ID</th><th>Host</th><th>Port</th></tr></thead><tbody>';
-    for (const b of data.brokers) {
-      html += `<tr><td style="color:var(--magenta)">#${b.id}</td><td style="color:var(--cyan)">${escapeHtml(b.host)}</td><td>${b.port}</td></tr>`;
-    }
-    html += '</tbody></table></div>';
-  }
-
-  // ── Topic Throughput ──
-  if (data.topic_throughput && data.topic_throughput.length > 0) {
-    html += '<div class="insights-section">';
-    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Topic Throughput</div>';
-    html += '<table class="insights-table"><thead><tr><th>Topic</th><th>Partitions</th><th>msg/sec</th><th>bytes/sec</th><th>avg size</th><th>total msgs</th><th>total bytes</th></tr></thead><tbody>';
-    for (const tp of data.topic_throughput) {
-      html += `<tr>
-        <td style="color:var(--cyan)">${escapeHtml(tp.topic)}</td>
-        <td>${tp.partitions}</td>
-        <td style="color:var(--green)">${tp.messages_per_sec.toFixed(1)}</td>
-        <td>${formatBytes(tp.bytes_per_sec)}/s</td>
-        <td>${formatBytes(tp.avg_message_size)}</td>
-        <td>${tp.total_messages.toLocaleString()}</td>
-        <td>${formatBytes(tp.total_bytes)}</td>
-      </tr>`;
-    }
-    html += '</tbody></table></div>';
-  }
-
   // ── Consumer Lag per Partition ──
   if (data.consumer_lag && data.consumer_lag.length > 0) {
     html += '<div class="insights-section">';
@@ -3247,6 +3217,36 @@ function renderInsights(data) {
   html += '<canvas id="lagChart"></canvas>';
   html += '<div class="lag-chart-tooltip" id="lagChartTooltip"></div>';
   html += '</div></div>';
+
+  // ── Broker Details ──
+  if (data.brokers && data.brokers.length > 0) {
+    html += '<div class="insights-section">';
+    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Broker Nodes</div>';
+    html += '<table class="insights-table"><thead><tr><th>ID</th><th>Host</th><th>Port</th></tr></thead><tbody>';
+    for (const b of data.brokers) {
+      html += `<tr><td style="color:var(--magenta)">#${b.id}</td><td style="color:var(--cyan)">${escapeHtml(b.host)}</td><td>${b.port}</td></tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
+
+  // ── Topic Throughput ──
+  if (data.topic_throughput && data.topic_throughput.length > 0) {
+    html += '<div class="insights-section">';
+    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Topic Throughput</div>';
+    html += '<table class="insights-table"><thead><tr><th>Topic</th><th>Partitions</th><th>msg/sec</th><th>bytes/sec</th><th>avg size</th><th>total msgs</th><th>total bytes</th></tr></thead><tbody>';
+    for (const tp of data.topic_throughput) {
+      html += `<tr>
+        <td style="color:var(--cyan)">${escapeHtml(tp.topic)}</td>
+        <td>${tp.partitions}</td>
+        <td style="color:var(--green)">${tp.messages_per_sec.toFixed(1)}</td>
+        <td>${formatBytes(tp.bytes_per_sec)}/s</td>
+        <td>${formatBytes(tp.avg_message_size)}</td>
+        <td>${tp.total_messages.toLocaleString()}</td>
+        <td>${formatBytes(tp.total_bytes)}</td>
+      </tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
 
   // ── Recommendations ──
   if (data.recommendations && data.recommendations.length > 0) {
