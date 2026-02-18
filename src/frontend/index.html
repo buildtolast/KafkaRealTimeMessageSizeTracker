@@ -3573,14 +3573,9 @@ async function confirmTopicSelection() {
   }
 
   const startFrom = getStartPosition();
+  const wasStarted = state.dashboardStarted;
 
   try {
-    // Mid-session: full reset — stop all consumers and clear backend state
-    if (state.dashboardStarted) {
-      await fetch('/api/reset', { method: 'POST' });
-      resetDashboardState();
-    }
-
     // Enable selected topics
     const body = { topics: selected, enabled: true };
     if (startFrom && startFrom.type !== 'latest') {
@@ -3596,10 +3591,11 @@ async function confirmTopicSelection() {
   } catch (e) { /* ignore */ }
 
   document.getElementById('topicPickerOverlay').classList.add('hidden');
-  if (!state.dashboardStarted) {
+  if (!wasStarted) {
     startDashboard();
   } else {
     // Reconnect WebSocket and refresh after reset
+    // (reopenTopicPicker already called /api/reset + resetDashboardState)
     connectWebSocket();
     refreshTopicsAfterToggle();
   }
@@ -3632,8 +3628,16 @@ async function refreshTopicsAfterToggle() {
   } catch (e) { /* ignore */ }
 }
 
-// Re-open topic picker mid-session for toggling topics on/off
-function reopenTopicPicker() {
+// Re-open topic picker mid-session for toggling topics on/off.
+// Disconnects existing consumers so no messages are pulled while
+// the user is making their selection.
+async function reopenTopicPicker() {
+  if (state.dashboardStarted) {
+    try {
+      await fetch('/api/reset', { method: 'POST' });
+    } catch (e) { /* ignore */ }
+    resetDashboardState();
+  }
   showTopicPicker();
 }
 
