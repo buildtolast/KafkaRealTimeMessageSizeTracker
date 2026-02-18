@@ -104,31 +104,17 @@ pub async fn get_lag_history(lag_timeseries: web::Data<LagTimeSeries>) -> HttpRe
 }
 
 /// GET /api/cluster/insights — full cluster insights with lag, throughput, and recommendations.
-/// Uses cached consumer lag from the background collector to avoid redundant Kafka calls.
+/// Serves entirely from cached data — no AdminConsumer lock, no Kafka calls.
+/// Background lag collector updates the cache every 30 seconds.
 pub async fn get_cluster_insights(
-    admin_consumer: web::Data<Arc<Mutex<AdminConsumer>>>,
     stats_engine: web::Data<StatsEngine>,
     kafka_stats: web::Data<SharedKafkaStats>,
     progress_tracker: web::Data<crate::tracker::progress::ProgressTracker>,
 ) -> HttpResponse {
-    let consumer = admin_consumer.clone();
-    let stats = stats_engine.clone();
-    let all_stats = stats.get_all_stats().await;
-    let ks = kafka_stats.get_ref().clone();
+    let all_stats = stats_engine.get_all_stats().await;
     let cached_lag = progress_tracker.get_cached_watermarks().await;
+    let cached_metadata = progress_tracker.get_cached_metadata().await;
 
-    match web::block(move || {
-        let consumer = consumer.blocking_lock();
-        admin::build_cluster_insights(&consumer, all_stats, &ks, cached_lag)
-    })
-    .await
-    {
-        Ok(Ok(response)) => HttpResponse::Ok().json(response),
-        Ok(Err(e)) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Failed to fetch cluster insights: {}", e)
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Blocking error: {}", e)
-        })),
-    }
+    let response = admin::build_cluster_insights(&cached_metadata, all_stats, &kafka_stats, cached_lag);
+    HttpResponse::Ok().json(response)
 }

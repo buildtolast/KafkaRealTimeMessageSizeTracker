@@ -1,6 +1,6 @@
 use crate::models::{
-    ConsumerProgress, ConsumerProgressResponse, PartitionLag, PartitionProgress,
-    ProgressDataPoint, TopicConsumed,
+    CachedClusterMetadata, ConsumerProgress, ConsumerProgressResponse, PartitionLag,
+    PartitionProgress, ProgressDataPoint, TopicConsumed,
 };
 use chrono::Utc;
 use std::collections::{HashMap, VecDeque};
@@ -23,6 +23,9 @@ pub struct ProgressTracker {
     /// Cached watermarks from the last background lag collection.
     /// Used by the API handler to avoid re-fetching from Kafka.
     cached_watermarks: Arc<RwLock<Vec<PartitionLag>>>,
+    /// Cached cluster metadata (brokers, topic/partition counts).
+    /// Updated by the background lag collector to avoid blocking API calls.
+    cached_metadata: Arc<RwLock<CachedClusterMetadata>>,
 }
 
 impl ProgressTracker {
@@ -31,6 +34,7 @@ impl ProgressTracker {
             state: Arc::new(RwLock::new(HashMap::new())),
             timeseries: Arc::new(RwLock::new(VecDeque::new())),
             cached_watermarks: Arc::new(RwLock::new(Vec::new())),
+            cached_metadata: Arc::new(RwLock::new(CachedClusterMetadata::default())),
         }
     }
 
@@ -137,6 +141,17 @@ impl ProgressTracker {
         self.cached_watermarks.read().await.clone()
     }
 
+    /// Update the cached cluster metadata (brokers, topic/partition counts).
+    /// Called from the background lag collector after fetching metadata.
+    pub async fn update_metadata(&self, metadata: CachedClusterMetadata) {
+        *self.cached_metadata.write().await = metadata;
+    }
+
+    /// Get the cached cluster metadata for instant API responses.
+    pub async fn get_cached_metadata(&self) -> CachedClusterMetadata {
+        self.cached_metadata.read().await.clone()
+    }
+
     /// Capture a time-series snapshot of current progress.
     /// Called from the lag collector background task.
     /// Also caches watermarks for instant API responses.
@@ -183,6 +198,7 @@ impl ProgressTracker {
         self.state.write().await.clear();
         self.timeseries.write().await.clear();
         self.cached_watermarks.write().await.clear();
+        *self.cached_metadata.write().await = CachedClusterMetadata::default();
     }
 }
 

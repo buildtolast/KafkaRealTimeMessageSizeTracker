@@ -218,17 +218,13 @@ pub fn extract_broker_metrics(stats: &SharedKafkaStats) -> Option<Vec<BrokerMetr
     }
 }
 
-/// Build full cluster insights: brokers, topics, partitions, lag, throughput, recommendations.
-/// Accepts pre-fetched consumer lag data to avoid redundant Kafka calls.
-pub fn build_cluster_insights(
+/// Fetch cluster metadata snapshot (brokers, topics, partition counts).
+/// Called from background tasks to populate the cache.
+pub fn fetch_cluster_metadata(
     consumer: &AdminConsumer,
-    all_stats: Vec<crate::models::TopicStats>,
-    kafka_stats: &SharedKafkaStats,
-    cached_lag: Vec<PartitionLag>,
-) -> Result<ClusterInsightsResponse, rdkafka::error::KafkaError> {
+) -> Result<crate::models::CachedClusterMetadata, rdkafka::error::KafkaError> {
     let metadata = consumer.fetch_metadata(None, Duration::from_secs(5))?;
 
-    // Brokers
     let brokers: Vec<BrokerInfo> = metadata
         .brokers()
         .iter()
@@ -239,17 +235,40 @@ pub fn build_cluster_insights(
         })
         .collect();
 
-    // Topics + partition count
     let mut total_partitions: i32 = 0;
-    let non_internal_topics: Vec<_> = metadata
+    let mut topic_partition_counts = std::collections::HashMap::new();
+    let non_internal: Vec<_> = metadata
         .topics()
         .iter()
         .filter(|t| !t.name().starts_with("__"))
         .collect();
-    let total_topics = non_internal_topics.len();
-    for t in &non_internal_topics {
-        total_partitions += t.partitions().len() as i32;
+    let total_topics = non_internal.len();
+    for t in &non_internal {
+        let pc = t.partitions().len() as i32;
+        total_partitions += pc;
+        topic_partition_counts.insert(t.name().to_string(), pc);
     }
+
+    Ok(crate::models::CachedClusterMetadata {
+        brokers,
+        cluster_id: None,
+        total_topics,
+        total_partitions,
+        topic_partition_counts,
+    })
+}
+
+/// Build full cluster insights from cached data — no AdminConsumer or Kafka calls needed.
+/// All inputs are pre-fetched by background tasks for instant response.
+pub fn build_cluster_insights(
+    metadata: &crate::models::CachedClusterMetadata,
+    all_stats: Vec<crate::models::TopicStats>,
+    kafka_stats: &SharedKafkaStats,
+    cached_lag: Vec<PartitionLag>,
+) -> ClusterInsightsResponse {
+    let brokers = metadata.brokers.clone();
+    let total_topics = metadata.total_topics;
+    let total_partitions = metadata.total_partitions;
 
     // Use pre-fetched consumer lag (from background collector cache)
     let consumer_lag = cached_lag;
@@ -257,10 +276,10 @@ pub fn build_cluster_insights(
     // Topic throughput from StatsEngine
     let mut topic_throughput: Vec<TopicThroughput> = Vec::new();
     for stats in &all_stats {
-        let partition_count = non_internal_topics
-            .iter()
-            .find(|t| t.name() == stats.topic)
-            .map(|t| t.partitions().len() as i32)
+        let partition_count = metadata
+            .topic_partition_counts
+            .get(&stats.topic)
+            .copied()
             .unwrap_or(1);
 
         topic_throughput.push(TopicThroughput {
@@ -341,14 +360,14 @@ pub fn build_cluster_insights(
     // Broker metrics from rdkafka statistics
     let broker_metrics = extract_broker_metrics(kafka_stats);
 
-    Ok(ClusterInsightsResponse {
+    ClusterInsightsResponse {
         brokers,
-        cluster_id: None,
+        cluster_id: metadata.cluster_id.clone(),
         total_topics,
         total_partitions,
         consumer_lag,
         topic_throughput,
         recommendations,
         broker_metrics,
-    })
+    }
 }

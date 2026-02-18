@@ -325,6 +325,18 @@ pub struct BrokerDiscoveryResponse {
     pub cluster_id: Option<String>,
 }
 
+/// Cached cluster metadata snapshot (brokers, topic count, partition counts).
+/// Updated by background tasks to avoid blocking API calls.
+#[derive(Debug, Clone, Default)]
+pub struct CachedClusterMetadata {
+    pub brokers: Vec<BrokerInfo>,
+    pub cluster_id: Option<String>,
+    pub total_topics: usize,
+    pub total_partitions: i32,
+    /// Per-topic partition count for throughput calculations.
+    pub topic_partition_counts: std::collections::HashMap<String, i32>,
+}
+
 /// Consumer group lag info for a single topic-partition.
 #[derive(Debug, Clone, Serialize)]
 pub struct PartitionLag {

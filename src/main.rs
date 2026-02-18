@@ -408,7 +408,7 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    // Background task: consumer lag collector (every 30 seconds)
+    // Background task: consumer lag + cluster metadata collector (every 30 seconds)
     let admin_for_lag = admin_consumer.clone();
     let lag_ts_for_collector = lag_timeseries.clone();
     let progress_for_lag = progress_tracker.clone();
@@ -422,41 +422,52 @@ async fn main() -> std::io::Result<()> {
             let consumer = admin_for_lag.clone();
             let result = web::block(move || {
                 let consumer = consumer.blocking_lock();
-                admin::fetch_consumer_lag_for_topics(&consumer, &topics)
+                // Fetch lag for tracked topics
+                let lags = admin::fetch_consumer_lag_for_topics(&consumer, &topics);
+                // Also fetch cluster metadata (brokers, topic/partition counts)
+                let metadata = admin::fetch_cluster_metadata(&consumer);
+                (lags, metadata)
             })
             .await;
 
-            if let Ok(Ok(partition_lags)) = result {
-                // Aggregate lag per topic
-                let mut topic_map: HashMap<String, (i64, i64, i64)> = HashMap::new();
-                for pl in &partition_lags {
-                    let entry = topic_map.entry(pl.topic.clone()).or_insert((0, 0, 0));
-                    entry.0 += pl.lag;
-                    entry.1 += pl.current_offset;
-                    entry.2 += pl.log_end_offset;
+            if let Ok((lag_result, metadata_result)) = result {
+                // Cache cluster metadata if successful
+                if let Ok(metadata) = metadata_result {
+                    progress_for_lag.update_metadata(metadata).await;
                 }
 
-                let total_lag: i64 = partition_lags.iter().map(|l| l.lag).sum();
-                let mut topic_lags: Vec<TopicLag> = topic_map
-                    .into_iter()
-                    .map(|(topic, (lag, current_offset, log_end_offset))| TopicLag {
-                        topic,
-                        lag,
-                        current_offset,
-                        log_end_offset,
-                    })
-                    .collect();
-                topic_lags.sort_by(|a, b| a.topic.cmp(&b.topic));
+                if let Ok(partition_lags) = lag_result {
+                    // Aggregate lag per topic
+                    let mut topic_map: HashMap<String, (i64, i64, i64)> = HashMap::new();
+                    for pl in &partition_lags {
+                        let entry = topic_map.entry(pl.topic.clone()).or_insert((0, 0, 0));
+                        entry.0 += pl.lag;
+                        entry.1 += pl.current_offset;
+                        entry.2 += pl.log_end_offset;
+                    }
 
-                let point = LagDataPoint {
-                    timestamp: chrono::Utc::now(),
-                    topic_lags,
-                    total_lag,
-                };
-                lag_ts_for_collector.append(point).await;
+                    let total_lag: i64 = partition_lags.iter().map(|l| l.lag).sum();
+                    let mut topic_lags: Vec<TopicLag> = topic_map
+                        .into_iter()
+                        .map(|(topic, (lag, current_offset, log_end_offset))| TopicLag {
+                            topic,
+                            lag,
+                            current_offset,
+                            log_end_offset,
+                        })
+                        .collect();
+                    topic_lags.sort_by(|a, b| a.topic.cmp(&b.topic));
 
-                // Snapshot consumer progress (reuses same watermark data)
-                progress_for_lag.snapshot(&partition_lags).await;
+                    let point = LagDataPoint {
+                        timestamp: chrono::Utc::now(),
+                        topic_lags,
+                        total_lag,
+                    };
+                    lag_ts_for_collector.append(point).await;
+
+                    // Snapshot consumer progress (reuses same watermark data)
+                    progress_for_lag.snapshot(&partition_lags).await;
+                }
             }
         }
     });
