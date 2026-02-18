@@ -32,12 +32,16 @@ pub async fn run_size_tracking_consumer(
         _ => "latest",
     };
 
+    // Use a unique consumer group per instance so that previously committed
+    // offsets never interfere with the requested start position on reconnection.
+    let unique_group = format!("{}-{}-{}", group_id, topic, super::browser::uuid_simple());
+
     let mut config = ClientConfig::new();
     config
         .set("bootstrap.servers", &brokers)
-        .set("group.id", format!("{}-{}", group_id, topic))
+        .set("group.id", &unique_group)
         .set("auto.offset.reset", auto_offset_reset)
-        .set("enable.auto.commit", "true");
+        .set("enable.auto.commit", "false");
     super::apply_security(&mut config, &security);
 
     let consumer: StreamConsumer = match config.create() {
