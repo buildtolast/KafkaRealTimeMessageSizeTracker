@@ -39,14 +39,14 @@ src/
 ├── models.rs            — MessageSizeEvent, TopicStats, Alert, AlertConfig, HistoryDataPoint, WsMessage, CapturedMessage, HistoricalMessage, BrowseMessagesResponse, TopicSnapshot, GlobalSnapshotResponse, TopicToggleRequest (with start_from), StartPosition enum, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, BrokerRequest (with auth fields), BrokerResponse (with auth_configured), PartitionLag, TopicThroughput, ThroughputRecommendation, ClusterInsightsResponse (with broker_metrics), BrokerMetrics, LatencyWindow, BrowseQueryParams, AlertDefaultsResponse, AlertDefaultsRequest, PartitionProgress, ConsumerProgress, ConsumerProgressResponse, ProgressDataPoint, TopicConsumed
 ├── mongo.rs             — MongoStore with two collections (oversized_messages + alerts), PersistedMessage/PersistedAlert models, persist + query methods
 ├── kafka/
-│   ├── mod.rs           — apply_security() helper: applies SASL/SSL config to any ClientConfig
-│   ├── admin.rs         — AdminConsumer (BaseConsumer<StatsContext>) for metadata (list_topics), discover_brokers(), fetch_consumer_lag(), build_cluster_insights(), extract_broker_metrics(); SharedKafkaStats for rdkafka statistics callback; accepts SecurityConfig
+│   ├── mod.rs           — apply_security() + apply_timeouts() helpers: applies SASL/SSL config and connection timeouts (socket 10s, setup 5s, request 10s) to any ClientConfig
+│   ├── admin.rs         — AdminConsumer (BaseConsumer<StatsContext>) for metadata (list_topics), discover_brokers(), fetch_consumer_lag()/fetch_consumer_lag_for_topics(scoped), build_cluster_insights(cached_lag), extract_broker_metrics(); SharedKafkaStats for rdkafka statistics callback; accepts SecurityConfig
 │   ├── consumer.rs      — StreamConsumer per topic, accepts StartPosition (latest/beginning/timestamp/offset) + SecurityConfig, extracts payload.len() + captures raw bytes dynamically
 │   └── browser.rs       — Historical message browsing: seek by offset/timestamp, browse_from_beginning(), browse_latest(), short-lived BaseConsumer per request; all 5 functions accept SecurityConfig
 ├── tracker/
 │   ├── stats.rs         — StatsEngine: running avg/min/max, reservoir sampling (Algorithm R, 1000 samples)
 │   ├── alerts.rs        — AlertEngine: per-topic thresholds, circular buffer (1000 alerts), capture store (100 max), runtime-mutable defaults (Arc<RwLock>), get_capture_threshold() for dynamic consumer capture
-│   └── progress.rs      — ProgressTracker: per-topic/partition consumer offset tracking, progress percentage calculation (merged with watermarks), time-series snapshots (10s intervals, 12h cap)
+│   └── progress.rs      — ProgressTracker: per-topic/partition consumer offset tracking, progress percentage calculation (merged with watermarks), time-series snapshots (10s intervals, 12h cap), cached watermarks for instant API responses (no Kafka calls)
 ├── storage.rs           — TimeSeriesStorage: per-minute aggregates, circular buffer (7 days = 10080 entries), snapshot_at() for time-travel
 ├── handlers/
 │   ├── topics.rs        — GET /api/topics, GET /api/topics/available, POST /api/topics/toggle (with TopicManager + StartPosition)
@@ -55,7 +55,7 @@ src/
 │   ├── history.rs       — GET /api/history/{topic}?range=1h|6h|24h|7d
 │   ├── broker.rs        — GET/POST /api/broker, GET /api/broker/discover, GET /api/cluster/insights
 │   ├── browse.rs        — GET /api/browse/{topic} (with ?preset=beginning|1h|1d|latest), GET /api/browse/{topic}/download/{partition}/{offset}, GET /api/snapshot
-│   ├── progress.rs      — GET /api/consumer/progress, GET /api/consumer/progress/timeseries
+│   ├── progress.rs      — GET /api/consumer/progress (cached, no Kafka call), GET /api/consumer/progress/timeseries
 │   ├── mongo.rs         — GET /api/persisted/messages, GET /api/persisted/alerts, GET /api/persisted/status
 │   └── ws.rs            — WebSocket /ws/live (rate-limited 50 events/sec, topic filtering)
 └── frontend/
@@ -69,13 +69,13 @@ src/
 - **SharedAdminConsumer**: `Arc<Mutex<AdminConsumer>>` with `web::block` for metadata ops; AdminConsumer = `BaseConsumer<StatsContext>` with `statistics.interval.ms=5000`
 - **SharedMongoStore**: `Option<Arc<MongoStore>>` — initialized if `--mongo-uri` is provided
 - **WebSocket**: `actix_ws::Message` + `tokio::select!` multiplexing (broadcast rx + client msgs + heartbeat)
-- **Feature flags**: `static-kafka` (cmake-build, default) / `dynamic-kafka` (dynamic-linking)
+- **Feature flags**: `static-kafka` (cmake-build + ssl, default) / `dynamic-kafka` (dynamic-linking + ssl)
 
 ### Background Tasks (5)
 1. **Stats broadcaster** (1s): reads all stats -> broadcasts WsMessage::StatsUpdate
 2. **Minute aggregator** (60s): snapshots stats -> appends to TimeSeriesStorage
-3. **Topic auto-discovery** (30s): lists topics from admin consumer -> subscribes new ones
-4. **Lag collector** (10s): fetch_consumer_lag -> LagTimeSeries
+3. **Topic auto-discovery** (60s): lists topics from admin consumer -> subscribes new ones
+4. **Lag collector** (30s): fetch_consumer_lag_for_topics (scoped to tracked) -> LagTimeSeries + ProgressTracker.snapshot() (caches watermarks)
 5. **Admin consumer poller** (1s): polls AdminConsumer for rdkafka statistics callbacks
 
 ### Data Flow
@@ -91,6 +91,13 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
       -> If MongoStore available -> persist oversized message + alert to MongoDB
       -> WsMessage::SizeEvent -> ws_broadcast -> WebSocket clients (captured_payload is #[serde(skip)])
 ```
+
+### Confluent Cloud / High-Latency Optimizations
+- **apply_timeouts()**: socket 10s, connection setup 5s, request 10s, metadata max age 60s (applied to all 8 ClientConfig creation points)
+- **Scoped lag fetching**: `fetch_consumer_lag_for_topics()` fetches metadata per-topic instead of all-topics (24 sequential watermark calls → only tracked)
+- **Cached watermarks**: Background lag collector caches watermarks in ProgressTracker; consumer progress API + cluster insights API serve from cache (zero Kafka calls)
+- **Throttled polling**: auto-discovery 60s, lag collector 30s, frontend overlays 15s, global history 60s
+- **Topic filtering**: `GET /api/topics` returns only tracked topics from in-memory HashSet (no Kafka metadata fetch when topics selected); WebSocket handlers filter untracked events
 
 ## API Routes
 | Route | Method | Purpose |
