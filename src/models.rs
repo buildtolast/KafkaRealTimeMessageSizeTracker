@@ -116,16 +116,25 @@ pub enum AlertStatus {
     Unknown,
 }
 
-/// Broker config request
+/// Broker config request (includes optional SASL/SSL auth fields)
 #[derive(Debug, Deserialize)]
 pub struct BrokerRequest {
     pub brokers: String,
+    pub security_protocol: Option<String>,
+    pub sasl_mechanism: Option<String>,
+    pub sasl_username: Option<String>,
+    pub sasl_password: Option<String>,
 }
 
 /// Broker config response
 #[derive(Debug, Serialize)]
 pub struct BrokerResponse {
     pub brokers: String,
+    /// Whether authentication is configured (never reveals the secret).
+    pub auth_configured: bool,
+    /// The security protocol in use, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security_protocol: Option<String>,
 }
 
 /// Alert config update request
@@ -416,6 +425,48 @@ pub struct TopicLag {
 #[derive(Debug, Serialize)]
 pub struct LagHistoryResponse {
     pub points: Vec<LagDataPoint>,
+}
+
+/// Per-partition consumer progress.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartitionProgress {
+    pub partition: i32,
+    pub first_offset: i64,
+    pub current_offset: i64,
+    pub log_end_offset: i64,
+    pub messages_consumed: u64,
+    pub progress_pct: f64,
+}
+
+/// Per-topic consumer progress.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConsumerProgress {
+    pub topic: String,
+    pub partitions: Vec<PartitionProgress>,
+    pub total_messages_consumed: u64,
+    pub overall_progress_pct: f64,
+}
+
+/// Response for GET /api/consumer/progress.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConsumerProgressResponse {
+    pub topics: Vec<ConsumerProgress>,
+    pub timestamp: DateTime<Utc>,
+}
+
+/// Time-series data point for consumer progress tracking.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProgressDataPoint {
+    pub timestamp: DateTime<Utc>,
+    pub topics: Vec<TopicConsumed>,
+}
+
+/// Per-topic consumed count at a point in time.
+#[derive(Debug, Clone, Serialize)]
+pub struct TopicConsumed {
+    pub topic: String,
+    pub messages_consumed: u64,
+    pub progress_pct: f64,
 }
 
 #[cfg(test)]
@@ -877,5 +928,63 @@ mod tests {
         let json = r#"{"topics":["orders","users"],"enabled":true}"#;
         let req: TopicToggleRequest = serde_json::from_str(json).unwrap();
         assert!(req.start_from.is_none());
+    }
+
+    #[test]
+    fn test_partition_progress_serde_roundtrip() {
+        let pp = PartitionProgress {
+            partition: 0,
+            first_offset: 100,
+            current_offset: 500,
+            log_end_offset: 1000,
+            messages_consumed: 400,
+            progress_pct: 44.44,
+        };
+        let json = serde_json::to_string(&pp).unwrap();
+        assert!(json.contains(r#""partition":0"#));
+        assert!(json.contains(r#""first_offset":100"#));
+        assert!(json.contains(r#""messages_consumed":400"#));
+        let decoded: PartitionProgress = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.current_offset, 500);
+    }
+
+    #[test]
+    fn test_consumer_progress_response_serialization() {
+        let resp = ConsumerProgressResponse {
+            topics: vec![ConsumerProgress {
+                topic: "orders".into(),
+                partitions: vec![PartitionProgress {
+                    partition: 0,
+                    first_offset: 0,
+                    current_offset: 750,
+                    log_end_offset: 1000,
+                    messages_consumed: 750,
+                    progress_pct: 75.0,
+                }],
+                total_messages_consumed: 750,
+                overall_progress_pct: 75.0,
+            }],
+            timestamp: Utc::now(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""topic":"orders""#));
+        assert!(json.contains(r#""overall_progress_pct":75.0"#));
+        assert!(json.contains(r#""total_messages_consumed":750"#));
+    }
+
+    #[test]
+    fn test_progress_data_point_serialization() {
+        let point = ProgressDataPoint {
+            timestamp: Utc::now(),
+            topics: vec![TopicConsumed {
+                topic: "orders".into(),
+                messages_consumed: 1000,
+                progress_pct: 50.0,
+            }],
+        };
+        let json = serde_json::to_string(&point).unwrap();
+        assert!(json.contains(r#""topic":"orders""#));
+        assert!(json.contains(r#""messages_consumed":1000"#));
+        assert!(json.contains(r#""progress_pct":50.0"#));
     }
 }

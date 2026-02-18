@@ -1,3 +1,4 @@
+use crate::config::SecurityConfig;
 use crate::models::{
     BrokerDiscoveryResponse, BrokerInfo, BrokerMetrics, ClusterInsightsResponse, LatencyWindow,
     PartitionLag, ThroughputRecommendation, TopicThroughput,
@@ -33,12 +34,15 @@ pub type AdminConsumer = BaseConsumer<StatsContext>;
 pub fn create_admin_consumer(
     brokers: &str,
     stats: SharedKafkaStats,
+    security: &SecurityConfig,
 ) -> Result<AdminConsumer, rdkafka::error::KafkaError> {
     let context = StatsContext { stats };
-    ClientConfig::new()
+    let mut config = ClientConfig::new();
+    config
         .set("bootstrap.servers", brokers)
-        .set("statistics.interval.ms", "5000")
-        .create_with_context(context)
+        .set("statistics.interval.ms", "5000");
+    super::apply_security(&mut config, security);
+    config.create_with_context(context)
 }
 
 /// List all non-internal topics from the Kafka cluster.

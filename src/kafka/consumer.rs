@@ -1,3 +1,4 @@
+use crate::config::SecurityConfig;
 use crate::models::{MessageSizeEvent, StartPosition};
 use crate::tracker::alerts::AlertEngine;
 use chrono::{DateTime, Utc};
@@ -24,19 +25,22 @@ pub async fn run_size_tracking_consumer(
     tx: broadcast::Sender<MessageSizeEvent>,
     alert_engine: AlertEngine,
     start_position: Option<StartPosition>,
+    security: SecurityConfig,
 ) {
     let auto_offset_reset = match &start_position {
         Some(StartPosition::Beginning) => "earliest",
         _ => "latest",
     };
 
-    let consumer: StreamConsumer = match ClientConfig::new()
+    let mut config = ClientConfig::new();
+    config
         .set("bootstrap.servers", &brokers)
         .set("group.id", format!("{}-{}", group_id, topic))
         .set("auto.offset.reset", auto_offset_reset)
-        .set("enable.auto.commit", "true")
-        .create()
-    {
+        .set("enable.auto.commit", "true");
+    super::apply_security(&mut config, &security);
+
+    let consumer: StreamConsumer = match config.create() {
         Ok(c) => c,
         Err(e) => {
             log::error!("Failed to create consumer for topic {}: {}", topic, e);

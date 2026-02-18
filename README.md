@@ -12,13 +12,15 @@ Real-time Kafka message size monitoring dashboard with configurable alerts, hist
 - **Live feed** of message sizes with color-coded severity (green/yellow/red)
 - **WebSocket streaming** with rate limiting (50 events/sec), topic filtering, and auto-reconnect
 - **Auto-discovery** of new Kafka topics every 30 seconds
+- **Confluent Cloud / SASL authentication** — SASL_SSL, SASL_PLAINTEXT, SSL protocols with PLAIN, SCRAM-SHA-256, SCRAM-SHA-512 mechanisms, configurable via CLI args, environment variables, or the web UI auth panel
 - **Hot-swappable broker** with connect/disconnect toggle — disconnect stops all consumers and resets dashboard
 - **Topic selection with replay** — startup picker overlay to choose which topics to monitor (with localStorage persistence) and select a start position (Latest, Beginning, Timestamp, or specific Offset) for replaying historical data through the stats engine. Re-openable mid-session via `[topics]` button with full dashboard reset
 - **4-state topic lifecycle** — sidebar topics sorted by recent average message size with 4-state lifecycle: Critical → Warning → Recovered (30s cooldown) → OK, each with unique per-topic colors from a palette
 - **Enhanced alerts** — time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery** — discover cluster brokers via metadata API, popover UI with click-to-connect
 - **Cluster insights** — full-screen overlay showing brokers, topics, partitions, consumer lag, throughput per topic, per-broker performance metrics (state, TX/RX bytes, RTT latency, errors, throttle, retries, in-flight via rdkafka statistics), and recommendations
-- **Health report** — non-technical summary overlay showing per-topic health status with plain-English descriptions of abnormalities, auto-refreshes every 5 seconds
+- **Health report** — non-technical summary overlay showing per-topic health status with plain-English descriptions of abnormalities, grouped alert summary + individual alert messages table with download links, time-window selection (live/1h/6h/24h/7d) for analyzing historical data, auto-refreshes every 5 seconds (live) or 30 seconds (historical)
+- **Consumer progress tracking** — full-screen overlay showing per-topic consumer progress with visual progress bars (color-coded by completion %), per-partition detail tables, offset tracking (first/current/log-end), canvas time-series chart of consumption over time, auto-refresh every 5 seconds
 - **MongoDB persistence** — optional persistence of oversized messages and alerts to MongoDB, with a dedicated browser tab for querying persisted data
 - **4 UI themes** — Terminal/Chalk (default), Tokyo Night, Dracula, Light, with theme switcher and localStorage persistence
 
@@ -68,6 +70,21 @@ Options:
   --threshold <THRESHOLD>            Warning alert threshold in bytes [default: 1048576]
   --critical-threshold <THRESHOLD>   Critical alert threshold in bytes [default: 10485760]
   --mongo-uri <URI>                  MongoDB connection URI (enables persistence)
+  --security-protocol <PROTOCOL>     Kafka security protocol (SASL_SSL, SASL_PLAINTEXT, SSL)
+  --sasl-mechanism <MECHANISM>       SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+  --sasl-username <USERNAME>         SASL username / API Key
+  --sasl-password <PASSWORD>         SASL password / API Secret
+```
+
+### Confluent Cloud Example
+
+```bash
+cargo run -- \
+  --brokers pkc-xxxxx.us-east-1.aws.confluent.cloud:9092 \
+  --security-protocol SASL_SSL \
+  --sasl-mechanism PLAIN \
+  --sasl-username YOUR_API_KEY \
+  --sasl-password YOUR_API_SECRET
 ```
 
 ## Environment Variables
@@ -83,6 +100,10 @@ All CLI options can be overridden with environment variables:
 | `CRITICAL_THRESHOLD_BYTES` | `10485760` (10MB) | Default critical threshold |
 | `CONSUMER_GROUP` | `kafka-size-tracker` | Kafka consumer group prefix |
 | `MONGO_URI` | _(none)_ | MongoDB connection URI (enables persistence when set) |
+| `KAFKA_SECURITY_PROTOCOL` | _(none)_ | Kafka security protocol (SASL_SSL, SASL_PLAINTEXT, SSL) |
+| `KAFKA_SASL_MECHANISM` | _(none)_ | SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512) |
+| `KAFKA_SASL_USERNAME` | _(none)_ | SASL username / API Key |
+| `KAFKA_SASL_PASSWORD` | _(none)_ | SASL password / API Secret |
 | `RUST_LOG` | `info` | Log level filter |
 
 ## Dashboard
@@ -175,6 +196,7 @@ Kafka Topic
   -> broadcast::Sender<MessageSizeEvent>
   -> Event Processor:
       -> StatsEngine.record_event()    (running stats + reservoir sampling)
+      -> ProgressTracker.record_offset() (per-partition consumer offset tracking)
       -> AlertEngine.check_event()     (threshold check -> alert if exceeded)
       -> If alert + captured payload -> store CapturedMessage (max 100, LRU eviction)
       -> If MongoStore available -> persist oversized message + alert to MongoDB
@@ -183,7 +205,7 @@ Kafka Topic
       -> Stats Broadcaster (1s)        (all stats -> WebSocket)
       -> Minute Aggregator (60s)       (snapshot -> TimeSeriesStorage)
       -> Topic Auto-Discovery (30s)    (admin consumer -> subscribe new topics)
-      -> Lag Collector (10s)           (fetch_consumer_lag -> LagTimeSeries)
+      -> Lag Collector (10s)           (fetch_consumer_lag -> LagTimeSeries + ProgressTracker.snapshot())
 ```
 
 ### Project Structure
@@ -191,17 +213,19 @@ Kafka Topic
 ```
 src/
 ├── main.rs              # Server bootstrap, TopicManager, AppState, SharedMongoStore, routes, background tasks
-├── config.rs            # CLI args (clap) + environment variable fallback + --mongo-uri
+├── config.rs            # CLI args (clap), env var fallback, SecurityConfig (SASL/SSL auth), SharedSecurityConfig
 ├── error.rs             # TrackerError with actix ResponseError impl
 ├── models.rs            # All data structures and serialization (including StartPosition, topic toggle, broker discovery, cluster insights, browse presets)
 ├── mongo.rs             # MongoStore: two collections (oversized_messages + alerts), PersistedMessage/PersistedAlert models
 ├── kafka/
-│   ├── admin.rs         # BaseConsumer for metadata, discover_brokers(), fetch_consumer_lag(), build_cluster_insights()
+│   ├── mod.rs           # apply_security() helper for SASL/SSL config
+│   ├── admin.rs         # AdminConsumer (BaseConsumer + StatsContext), SharedKafkaStats, discover_brokers(), fetch_consumer_lag(), build_cluster_insights(), extract_broker_metrics()
 │   ├── consumer.rs      # StreamConsumer per topic, size extraction, StartPosition seeking (latest/beginning/timestamp/offset)
 │   └── browser.rs       # Historical message browsing (seek by offset/timestamp), browse_from_beginning(), browse_latest()
 ├── tracker/
 │   ├── stats.rs         # StatsEngine: reservoir sampling (Algorithm R), percentiles, rates
-│   └── alerts.rs        # AlertEngine: per-topic thresholds, circular alert buffer
+│   ├── alerts.rs        # AlertEngine: per-topic thresholds, circular alert buffer
+│   └── progress.rs      # ProgressTracker: per-partition consumer offset tracking, progress %, time-series snapshots
 ├── storage.rs           # TimeSeriesStorage: per-minute circular buffer (7 days), snapshot_at() for time-travel
 ├── handlers/
 │   ├── topics.rs        # GET /api/topics, GET /api/topics/available, POST /api/topics/toggle, POST /api/reset, POST /api/disconnect
@@ -210,11 +234,12 @@ src/
 │   ├── history.rs       # GET /api/history/{topic}
 │   ├── broker.rs        # GET/POST /api/broker, GET /api/broker/discover, GET /api/cluster/insights
 │   ├── browse.rs        # Message browser (with preset support) + global snapshot
+│   ├── progress.rs      # GET /api/consumer/progress, GET /api/consumer/progress/timeseries
 │   ├── mongo.rs         # GET /api/persisted/messages, GET /api/persisted/alerts, GET /api/persisted/status
 │   └── ws.rs            # WebSocket /ws/live
 └── frontend/
     ├── mod.rs           # include_str! embedding
-    └── index.html       # ~2600-line SPA with 4 themes
+    └── index.html       # ~2900-line SPA with 4 themes
 ```
 
 ### Key Design Decisions
@@ -291,16 +316,17 @@ Two-stage build for minimal runtime image:
 cargo test
 ```
 
-**79 tests** across all modules:
+**97 tests** across all modules:
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
-| `config` | 2 | Default values, CLI arg overrides |
-| `models` | 24 | Serialization roundtrips, serde attributes, browse/snapshot/toggle/discovery/insights/preset models, StartPosition serde |
+| `config` | 6 | Default values, CLI arg overrides, SecurityConfig (configured, not configured, from args, serde roundtrip) |
+| `models` | 32 | Serialization roundtrips, serde attributes, browse/snapshot/toggle/discovery/insights/preset models, StartPosition serde, BrokerMetrics, LatencyWindow, PartitionProgress, ConsumerProgressResponse, ProgressDataPoint |
 | `handlers::history` | 1 | Range string parsing |
 | `kafka::browser` | 5 | Payload encoding (UTF-8/binary/truncation), unique ID generation |
 | `tracker::stats` | 13 | Running stats, reservoir sampling, percentiles, rates, snapshots |
 | `tracker::alerts` | 14 | Threshold checks, circular buffer, per-topic config, enable/disable, capture store/eviction, runtime defaults, capture thresholds |
+| `tracker::progress` | 8 | Offset tracking, multi-partition/topic, progress calculation with watermarks, caught-up detection, timeseries snapshots, empty state, clear |
 | `storage` | 14 | Circular buffer, range queries, eviction, multi-topic independence, snapshot_at, lag timeseries (append, eviction, clear) |
 | `mongo` | 4 | PersistedMessage ser/deser, PersistedAlert ser/deser |
 

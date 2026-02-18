@@ -1,3 +1,4 @@
+use crate::config::SecurityConfig;
 use crate::models::{
     BrowseMessagesResponse, HistoricalMessage, MessageHeader, MessagePayload, PartitionOffset,
 };
@@ -46,12 +47,16 @@ pub fn browse_by_offset(
     partition: i32,
     start_offset: i64,
     limit: usize,
+    security: &SecurityConfig,
 ) -> Result<BrowseMessagesResponse, String> {
     let limit = limit.min(MAX_MESSAGES);
-    let consumer: BaseConsumer = ClientConfig::new()
+    let mut config = ClientConfig::new();
+    config
         .set("bootstrap.servers", brokers)
         .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
-        .set("enable.auto.commit", "false")
+        .set("enable.auto.commit", "false");
+    super::apply_security(&mut config, security);
+    let consumer: BaseConsumer = config
         .create()
         .map_err(|e| format!("Failed to create consumer: {}", e))?;
 
@@ -100,14 +105,18 @@ pub fn browse_by_timestamp(
     topic: &str,
     timestamp: DateTime<Utc>,
     limit: usize,
+    security: &SecurityConfig,
 ) -> Result<BrowseMessagesResponse, String> {
     let limit = limit.min(MAX_MESSAGES);
     let ts_millis = timestamp.timestamp_millis();
 
-    let consumer: BaseConsumer = ClientConfig::new()
+    let mut config = ClientConfig::new();
+    config
         .set("bootstrap.servers", brokers)
         .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
-        .set("enable.auto.commit", "false")
+        .set("enable.auto.commit", "false");
+    super::apply_security(&mut config, security);
+    let consumer: BaseConsumer = config
         .create()
         .map_err(|e| format!("Failed to create consumer: {}", e))?;
 
@@ -215,12 +224,16 @@ pub fn browse_from_beginning(
     brokers: &str,
     topic: &str,
     limit: usize,
+    security: &SecurityConfig,
 ) -> Result<BrowseMessagesResponse, String> {
     let limit = limit.min(MAX_MESSAGES);
-    let consumer: BaseConsumer = ClientConfig::new()
+    let mut config = ClientConfig::new();
+    config
         .set("bootstrap.servers", brokers)
         .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
-        .set("enable.auto.commit", "false")
+        .set("enable.auto.commit", "false");
+    super::apply_security(&mut config, security);
+    let consumer: BaseConsumer = config
         .create()
         .map_err(|e| format!("Failed to create consumer: {}", e))?;
 
@@ -294,12 +307,16 @@ pub fn browse_latest(
     brokers: &str,
     topic: &str,
     limit: usize,
+    security: &SecurityConfig,
 ) -> Result<BrowseMessagesResponse, String> {
     let limit = limit.min(MAX_MESSAGES);
-    let consumer: BaseConsumer = ClientConfig::new()
+    let mut config = ClientConfig::new();
+    config
         .set("bootstrap.servers", brokers)
         .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
-        .set("enable.auto.commit", "false")
+        .set("enable.auto.commit", "false");
+    super::apply_security(&mut config, security);
+    let consumer: BaseConsumer = config
         .create()
         .map_err(|e| format!("Failed to create consumer: {}", e))?;
 
@@ -381,11 +398,15 @@ pub fn fetch_full_message(
     topic: &str,
     partition: i32,
     offset: i64,
+    security: &SecurityConfig,
 ) -> Result<Option<Vec<u8>>, String> {
-    let consumer: BaseConsumer = ClientConfig::new()
+    let mut config = ClientConfig::new();
+    config
         .set("bootstrap.servers", brokers)
         .set("group.id", format!("size-tracker-browser-{}", uuid_simple()))
-        .set("enable.auto.commit", "false")
+        .set("enable.auto.commit", "false");
+    super::apply_security(&mut config, security);
+    let consumer: BaseConsumer = config
         .create()
         .map_err(|e| format!("Failed to create consumer: {}", e))?;
 

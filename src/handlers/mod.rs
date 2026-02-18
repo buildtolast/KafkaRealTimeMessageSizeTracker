@@ -3,6 +3,7 @@ pub mod broker;
 pub mod browse;
 pub mod history;
 pub mod mongo;
+pub mod progress;
 pub mod stats;
 pub mod topics;
 pub mod ws;

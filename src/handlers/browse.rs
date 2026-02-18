@@ -1,3 +1,4 @@
+use crate::config::SharedSecurityConfig;
 use crate::kafka::browser;
 use crate::models::{
     BrowseQueryParams, GlobalSnapshotResponse, SnapshotQueryParams, TopicSnapshot,
@@ -15,11 +16,13 @@ pub async fn browse_messages(
     path: web::Path<String>,
     query: web::Query<BrowseQueryParams>,
     brokers: web::Data<Arc<RwLock<String>>>,
+    security: web::Data<SharedSecurityConfig>,
 ) -> HttpResponse {
     let topic = path.into_inner();
     let params = query.into_inner();
     let limit = params.limit.unwrap_or(50).min(100);
     let brokers = brokers.read().await.clone();
+    let sec = security.read().await.clone();
 
     // Check preset first — these are quick buttons
     if let Some(ref preset) = params.preset {
@@ -27,7 +30,7 @@ pub async fn browse_messages(
             "beginning" => {
                 let topic_clone = topic.clone();
                 match web::block(move || {
-                    browser::browse_from_beginning(&brokers, &topic_clone, limit)
+                    browser::browse_from_beginning(&brokers, &topic_clone, limit, &sec)
                 })
                 .await
                 {
@@ -44,7 +47,7 @@ pub async fn browse_messages(
                 let timestamp = chrono::Utc::now() - chrono::Duration::hours(1);
                 let topic_clone = topic.clone();
                 match web::block(move || {
-                    browser::browse_by_timestamp(&brokers, &topic_clone, timestamp, limit)
+                    browser::browse_by_timestamp(&brokers, &topic_clone, timestamp, limit, &sec)
                 })
                 .await
                 {
@@ -61,7 +64,7 @@ pub async fn browse_messages(
                 let timestamp = chrono::Utc::now() - chrono::Duration::days(1);
                 let topic_clone = topic.clone();
                 match web::block(move || {
-                    browser::browse_by_timestamp(&brokers, &topic_clone, timestamp, limit)
+                    browser::browse_by_timestamp(&brokers, &topic_clone, timestamp, limit, &sec)
                 })
                 .await
                 {
@@ -77,7 +80,7 @@ pub async fn browse_messages(
             "latest" => {
                 let topic_clone = topic.clone();
                 match web::block(move || {
-                    browser::browse_latest(&brokers, &topic_clone, limit)
+                    browser::browse_latest(&brokers, &topic_clone, limit, &sec)
                 })
                 .await
                 {
@@ -101,7 +104,7 @@ pub async fn browse_messages(
         let partition = params.partition.unwrap_or(0);
         let topic_clone = topic.clone();
         match web::block(move || {
-            browser::browse_by_offset(&brokers, &topic_clone, partition, offset, limit)
+            browser::browse_by_offset(&brokers, &topic_clone, partition, offset, limit, &sec)
         })
         .await
         {
@@ -125,7 +128,7 @@ pub async fn browse_messages(
         };
         let topic_clone = topic.clone();
         match web::block(move || {
-            browser::browse_by_timestamp(&brokers, &topic_clone, timestamp, limit)
+            browser::browse_by_timestamp(&brokers, &topic_clone, timestamp, limit, &sec)
         })
         .await
         {
@@ -149,13 +152,15 @@ pub async fn browse_messages(
 pub async fn download_message(
     path: web::Path<(String, i32, i64)>,
     brokers: web::Data<Arc<RwLock<String>>>,
+    security: web::Data<SharedSecurityConfig>,
 ) -> HttpResponse {
     let (topic, partition, offset) = path.into_inner();
     let brokers = brokers.read().await.clone();
+    let sec = security.read().await.clone();
     let topic_clone = topic.clone();
 
     match web::block(move || {
-        browser::fetch_full_message(&brokers, &topic_clone, partition, offset)
+        browser::fetch_full_message(&brokers, &topic_clone, partition, offset, &sec)
     })
     .await
     {

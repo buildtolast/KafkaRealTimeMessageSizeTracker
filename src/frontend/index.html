@@ -241,6 +241,38 @@ html[data-theme="light"] body::after { display: none; }
 }
 .broker-input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px rgba(139,233,253,0.15); }
 
+.auth-section {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  z-index: 200;
+  min-width: 320px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.auth-section.active { display: block; }
+.auth-section-title { color: var(--cyan); font-size: 11px; margin-bottom: 8px; font-weight: 600; }
+.auth-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.auth-row label { color: var(--text-dim); font-size: 11px; min-width: 80px; text-align: right; }
+.auth-row select, .auth-row input {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: var(--radius);
+  flex: 1;
+  outline: none;
+}
+.auth-row select:focus, .auth-row input:focus { border-color: var(--cyan); }
+.auth-indicator { color: var(--green); font-size: 10px; margin-left: 2px; }
+.auth-indicator.none { color: var(--text-dim); }
+
 .btn {
   background: var(--surface2);
   border: 1px solid var(--border);
@@ -1308,6 +1340,69 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
 .health-card-metrics { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
 .health-card-metric { font-size: 11px; color: var(--text-dim); }
 .health-card-metric .val { color: var(--text); font-weight: 600; margin-left: 4px; }
+
+/* ── Consumer Progress Overlay ── */
+.progress-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  z-index: 9000;
+  display: none; flex-direction: column;
+}
+.progress-overlay.active { display: flex; }
+.progress-header {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 10px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.progress-header .title { color: var(--green); font-weight: 600; font-size: 14px; }
+.progress-body { flex: 1; overflow-y: auto; padding: 20px; }
+.progress-timestamp { color: var(--text-dim); font-size: 11px; }
+.progress-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 18px; margin-bottom: 12px;
+}
+.progress-card-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+}
+.progress-card-topic { font-size: 14px; font-weight: 600; color: var(--magenta); }
+.progress-card-pct { font-size: 13px; font-weight: 700; }
+.progress-bar-bg {
+  background: var(--surface2); border-radius: 4px; height: 22px; overflow: hidden;
+  position: relative; border: 1px solid var(--border);
+}
+.progress-bar-fill {
+  height: 100%; transition: width 0.5s ease; border-radius: 3px;
+}
+.progress-bar-text {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font-size: 11px; font-weight: 600; color: var(--text);
+}
+.progress-stats-row {
+  display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; font-size: 11px; color: var(--text-dim);
+}
+.progress-stats-row .val { color: var(--text); font-weight: 600; margin-left: 4px; }
+.progress-partition-table {
+  width: 100%; font-size: 12px; margin-top: 8px;
+  border-collapse: collapse;
+}
+.progress-partition-table th {
+  text-align: left; color: var(--text-dim); font-weight: 500;
+  border-bottom: 1px solid var(--border); padding: 4px 8px;
+}
+.progress-partition-table td {
+  padding: 4px 8px; border-bottom: 1px solid var(--surface2);
+}
+.progress-chart-section {
+  margin-top: 24px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 18px;
+}
+.progress-chart-title {
+  color: var(--text-dim); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 10px;
+}
+.progress-partition-toggle {
+  cursor: pointer; color: var(--cyan); font-size: 11px;
+  margin-top: 6px; display: inline-block;
+}
 </style>
 </head>
 <body>
@@ -1335,15 +1430,45 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
     <div class="broker-input-group" style="position:relative">
       <span class="broker-label">broker://</span>
       <input type="text" class="broker-input" id="brokerInput" value="localhost:9092" placeholder="host:port">
+      <button class="btn" id="authToggleBtn" style="font-size:10px;padding:3px 8px" onclick="toggleAuthSection()"><span id="authIndicator" class="auth-indicator none">●</span> auth</button>
       <button class="btn btn-primary" id="brokerBtn" onclick="updateBroker()">connect</button>
       <button class="btn" id="brokerDisconnectBtn" style="display:none;background:var(--red);border-color:var(--red);color:var(--bg);font-weight:600" onclick="disconnectBroker()">disconnect</button>
       <button class="btn" style="font-size:10px;padding:3px 8px" onclick="toggleDiscover()">[discover]</button>
       <div class="discover-popover" id="discoverPopover"></div>
+      <div class="auth-section" id="authSection">
+        <div class="auth-section-title">Kafka Authentication</div>
+        <div class="auth-row">
+          <label>Protocol</label>
+          <select id="authProtocol" onchange="updateAuthIndicator()">
+            <option value="">None</option>
+            <option value="SASL_SSL">SASL_SSL</option>
+            <option value="SASL_PLAINTEXT">SASL_PLAINTEXT</option>
+            <option value="SSL">SSL</option>
+          </select>
+        </div>
+        <div class="auth-row">
+          <label>Mechanism</label>
+          <select id="authMechanism">
+            <option value="PLAIN">PLAIN</option>
+            <option value="SCRAM-SHA-256">SCRAM-SHA-256</option>
+            <option value="SCRAM-SHA-512">SCRAM-SHA-512</option>
+          </select>
+        </div>
+        <div class="auth-row">
+          <label>API Key</label>
+          <input type="text" id="authUsername" placeholder="API Key / Username" autocomplete="off">
+        </div>
+        <div class="auth-row">
+          <label>API Secret</label>
+          <input type="password" id="authPassword" placeholder="API Secret / Password" autocomplete="off">
+        </div>
+      </div>
     </div>
     <button class="btn" id="btnTopics" style="color:var(--yellow);border-color:var(--yellow-dim)" onclick="reopenTopicPicker()">[topics]</button>
     <button class="btn" id="btnBrowser" style="color:var(--magenta);border-color:var(--magenta-dim)" onclick="openBrowser()">[history_browser]</button>
     <button class="btn" id="btnInsights" style="color:var(--green);border-color:var(--green-dim)" onclick="openInsights()">[cluster_insights]</button>
     <button class="btn" id="btnHealth" style="color:var(--cyan);border-color:var(--cyan)" onclick="openHealthReport()">[health_report]</button>
+    <button class="btn" id="btnProgress" style="color:var(--green);border-color:var(--green)" onclick="openConsumerProgress()">[consumer_progress]</button>
   </div>
 
   <!-- Main Content -->
@@ -1723,12 +1848,34 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
     <span class="prompt">&gt;</span>
     <span class="title">health_report</span>
     <span class="health-timestamp" id="healthTimestamp"></span>
+    <div class="health-range-btns" id="healthRangeBtns" style="margin-left:12px;display:flex;gap:2px">
+      <button class="mini-range-btn active" onclick="setHealthRange('live',this)">live</button>
+      <button class="mini-range-btn" onclick="setHealthRange('1h',this)">1h</button>
+      <button class="mini-range-btn" onclick="setHealthRange('6h',this)">6h</button>
+      <button class="mini-range-btn" onclick="setHealthRange('24h',this)">24h</button>
+      <button class="mini-range-btn" onclick="setHealthRange('7d',this)">7d</button>
+    </div>
     <div style="flex:1"></div>
     <button class="btn" onclick="refreshHealthReport()" style="font-size:11px">[refresh]</button>
     <button class="btn" onclick="closeHealthReport()" style="font-size:11px">[close]</button>
   </div>
   <div class="health-body" id="healthBody">
     <div style="color:var(--text-dim);text-align:center;margin-top:60px">generating health report...</div>
+  </div>
+</div>
+
+<!-- Consumer Progress Overlay -->
+<div class="progress-overlay" id="progressOverlay">
+  <div class="progress-header">
+    <span class="prompt">&gt;</span>
+    <span class="title">consumer_progress</span>
+    <span class="progress-timestamp" id="progressTimestamp"></span>
+    <div style="flex:1"></div>
+    <button class="btn" onclick="refreshConsumerProgress()" style="font-size:11px">[refresh]</button>
+    <button class="btn" onclick="closeConsumerProgress()" style="font-size:11px">[close]</button>
+  </div>
+  <div class="progress-body" id="progressBody">
+    <div style="color:var(--text-dim);text-align:center;margin-top:60px">loading consumer progress...</div>
   </div>
 </div>
 
@@ -1770,6 +1917,10 @@ const state = {
   topicPeakStatus: {},  // per-topic: 'critical' | 'warning' — tracks worst seen for recovered state
   topicRecoveredAt: {},  // per-topic: timestamp when topic entered recovered state
   dashboardStarted: false,
+  healthTimeRange: 'live',
+  healthHistoryData: {},
+  progressData: null,
+  progressTimeseries: null,
 };
 
 const MAX_FEED = 200;
@@ -2321,19 +2472,53 @@ function resetDashboardState() {
   renderAlerts();
 }
 
+/* ── Auth Toggle ── */
+function toggleAuthSection() {
+  const section = document.getElementById('authSection');
+  section.classList.toggle('active');
+}
+
+function updateAuthIndicator() {
+  const protocol = document.getElementById('authProtocol').value;
+  const indicator = document.getElementById('authIndicator');
+  if (protocol) {
+    indicator.className = 'auth-indicator';
+    indicator.style.color = 'var(--green)';
+  } else {
+    indicator.className = 'auth-indicator none';
+    indicator.style.color = '';
+  }
+}
+
+function getAuthFields() {
+  const protocol = document.getElementById('authProtocol').value;
+  if (!protocol) return {};
+  return {
+    security_protocol: protocol,
+    sasl_mechanism: document.getElementById('authMechanism').value,
+    sasl_username: document.getElementById('authUsername').value || undefined,
+    sasl_password: document.getElementById('authPassword').value || undefined,
+  };
+}
+
 /* ── Broker Update ── */
 async function updateBroker() {
   const input = document.getElementById('brokerInput');
   const brokers = input.value.trim();
   if (!brokers) return;
 
+  const authFields = getAuthFields();
+  const payload = { brokers, ...authFields };
+
   try {
     const res = await fetch('/api/broker', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ brokers }),
+      body: JSON.stringify(payload),
     });
     if (res.ok) {
+      // Close auth section on successful connect
+      document.getElementById('authSection').classList.remove('active');
       resetDashboardState();
       state.dashboardStarted = false;
       connectWebSocket();
@@ -3980,6 +4165,15 @@ async function init() {
     if (res.ok) {
       const data = await res.json();
       document.getElementById('brokerInput').value = data.brokers;
+      // Populate auth indicator from server state
+      if (data.auth_configured) {
+        const indicator = document.getElementById('authIndicator');
+        indicator.className = 'auth-indicator';
+        indicator.style.color = 'var(--green)';
+        if (data.security_protocol) {
+          document.getElementById('authProtocol').value = data.security_protocol;
+        }
+      }
     }
   } catch (e) { /* ignore */ }
 
@@ -4534,6 +4728,13 @@ function truncateStr(str, maxLen) {
 let healthRefreshInterval = null;
 
 function openHealthReport() {
+  // Always start in live mode
+  state.healthTimeRange = 'live';
+  state.healthHistoryData = {};
+  document.querySelectorAll('#healthRangeBtns .mini-range-btn').forEach(b => b.classList.remove('active'));
+  const liveBtn = document.querySelector('#healthRangeBtns .mini-range-btn');
+  if (liveBtn) liveBtn.classList.add('active');
+
   document.getElementById('healthOverlay').classList.add('active');
   renderHealthReport();
   if (healthRefreshInterval) clearInterval(healthRefreshInterval);
@@ -4549,24 +4750,131 @@ function closeHealthReport() {
 }
 
 function refreshHealthReport() {
-  renderHealthReport();
+  if (state.healthTimeRange === 'live') {
+    renderHealthReport();
+  } else {
+    fetchHealthHistory(state.healthTimeRange);
+  }
 }
+
+function setHealthRange(range, btn) {
+  state.healthTimeRange = range;
+  document.querySelectorAll('#healthRangeBtns .mini-range-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  // Adjust refresh interval
+  if (healthRefreshInterval) clearInterval(healthRefreshInterval);
+  if (range === 'live') {
+    state.healthHistoryData = {};
+    renderHealthReport();
+    healthRefreshInterval = setInterval(renderHealthReport, 5000);
+  } else {
+    fetchHealthHistory(range);
+    healthRefreshInterval = setInterval(() => fetchHealthHistory(range), 30000);
+  }
+}
+
+async function fetchHealthHistory(range) {
+  const body = document.getElementById('healthBody');
+  body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">loading historical data...</div>';
+
+  try {
+    const topics = state.topics.length > 0 ? state.topics : Object.keys(state.stats);
+    const results = await Promise.all(
+      topics.map(async (topic) => {
+        const res = await fetch(`/api/history/${encodeURIComponent(topic)}?range=${range}`);
+        if (res.ok) {
+          const data = await res.json();
+          return { topic, data };
+        }
+        return { topic, data: [] };
+      })
+    );
+
+    state.healthHistoryData = {};
+    for (const r of results) {
+      state.healthHistoryData[r.topic] = r.data;
+    }
+    renderHealthReport();
+  } catch (e) {
+    body.innerHTML = '<div style="color:var(--red);text-align:center;margin-top:60px">failed to load historical data</div>';
+  }
+}
+
+function aggregateHistoryStats(dataPoints) {
+  if (!dataPoints || dataPoints.length === 0) return null;
+  let totalBytes = 0, totalMessages = 0;
+  let minBytes = Infinity, maxBytes = 0, maxP95 = 0;
+
+  for (const p of dataPoints) {
+    totalBytes += p.total_bytes || 0;
+    totalMessages += p.message_count || 0;
+    if (p.min_bytes < minBytes) minBytes = p.min_bytes;
+    if (p.max_bytes > maxBytes) maxBytes = p.max_bytes;
+    if (p.p95 > maxP95) maxP95 = p.p95;
+  }
+
+  const avgBytes = totalMessages > 0 ? totalBytes / totalMessages : 0;
+
+  // Compute time span for rate calculations
+  let timeSpanSec = 1;
+  if (dataPoints.length >= 2) {
+    const first = new Date(dataPoints[0].timestamp).getTime();
+    const last = new Date(dataPoints[dataPoints.length - 1].timestamp).getTime();
+    timeSpanSec = Math.max((last - first) / 1000, 1);
+  }
+
+  return {
+    message_count: totalMessages,
+    total_bytes: totalBytes,
+    avg_bytes: avgBytes,
+    min_bytes: minBytes === Infinity ? 0 : minBytes,
+    max_bytes: maxBytes,
+    p95: maxP95,
+    p99: maxP95, // conservative estimate
+    messages_per_sec: totalMessages / timeSpanSec,
+    bytes_per_sec: totalBytes / timeSpanSec,
+  };
+}
+
+const HEALTH_RANGE_LABELS = { '1h': 'Last 1 Hour', '6h': 'Last 6 Hours', '24h': 'Last 24 Hours', '7d': 'Last 7 Days' };
 
 function renderHealthReport() {
   const body = document.getElementById('healthBody');
   const tsEl = document.getElementById('healthTimestamp');
   tsEl.textContent = 'updated ' + new Date().toLocaleTimeString('en-US', { hour12: false });
 
-  if (state.topics.length === 0 || Object.keys(state.stats).length === 0) {
-    body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">waiting for topic data...</div>';
-    return;
+  const isHistorical = state.healthTimeRange !== 'live';
+
+  // Determine topic list and stats source
+  const topics = state.topics.length > 0 ? state.topics : Object.keys(state.stats);
+
+  if (isHistorical) {
+    // Historical mode: check if we have data
+    if (Object.keys(state.healthHistoryData).length === 0) {
+      body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">no historical data available for this time range</div>';
+      return;
+    }
+  } else {
+    // Live mode: need live stats
+    if (topics.length === 0 || Object.keys(state.stats).length === 0) {
+      body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">waiting for topic data...</div>';
+      return;
+    }
   }
 
   // Analyze each topic
   const topicReports = [];
-  for (const topic of state.topics) {
-    const s = state.stats[topic];
-    if (!s) continue;
+  for (const topic of topics) {
+    let s;
+    if (isHistorical) {
+      s = aggregateHistoryStats(state.healthHistoryData[topic]);
+      if (!s) continue;
+    } else {
+      s = state.stats[topic];
+      if (!s) continue;
+    }
+
     const warnThreshold = getTopicThreshold(topic);
     const critThreshold = (state.alertConfigs[topic] && state.alertConfigs[topic].critical)
       ? state.alertConfigs[topic].critical
@@ -4607,16 +4915,18 @@ function renderHealthReport() {
       issues.push(`Message sizes have a very wide spread — the largest message is ${Math.round(s.max_bytes / s.avg_bytes)}x the average, suggesting occasional bursts or anomalies.`);
     }
 
-    // Check recent alerts for this topic
-    const recentAlerts = state.alerts.filter(a => a.topic === topic);
-    const critAlerts = recentAlerts.filter(a => a.severity === 'critical');
-    const warnAlerts = recentAlerts.filter(a => a.severity === 'warning');
-    if (critAlerts.length > 0) {
-      if (severity !== 'crit') severity = 'crit';
-      issues.push(`${critAlerts.length} critical alert${critAlerts.length > 1 ? 's' : ''} triggered recently.`);
-    } else if (warnAlerts.length > 0) {
-      if (severity === 'ok') severity = 'warn';
-      issues.push(`${warnAlerts.length} warning alert${warnAlerts.length > 1 ? 's' : ''} triggered recently.`);
+    // Check recent alerts for this topic (live mode only)
+    if (!isHistorical) {
+      const recentAlerts = state.alerts.filter(a => a.topic === topic);
+      const critAlerts = recentAlerts.filter(a => a.severity === 'critical');
+      const warnAlerts = recentAlerts.filter(a => a.severity === 'warning');
+      if (critAlerts.length > 0) {
+        if (severity !== 'crit') severity = 'crit';
+        issues.push(`${critAlerts.length} critical alert${critAlerts.length > 1 ? 's' : ''} triggered recently.`);
+      } else if (warnAlerts.length > 0) {
+        if (severity === 'ok') severity = 'warn';
+        issues.push(`${warnAlerts.length} warning alert${warnAlerts.length > 1 ? 's' : ''} triggered recently.`);
+      }
     }
 
     // If all good
@@ -4662,6 +4972,14 @@ function renderHealthReport() {
 
   let html = '';
 
+  // Historical info banner
+  if (isHistorical) {
+    const rangeLabel = HEALTH_RANGE_LABELS[state.healthTimeRange] || state.healthTimeRange;
+    html += `<div style="background:var(--surface2);border:1px solid var(--cyan-dim);border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;color:var(--cyan);font-size:12px">
+      Analyzing historical data for <strong>${rangeLabel}</strong>. Alert-based analysis is not available in historical mode.
+    </div>`;
+  }
+
   // Banner
   html += `<div class="health-summary-banner ${overallSeverity}">${escapeHtml(bannerText)}</div>`;
 
@@ -4695,8 +5013,8 @@ function renderHealthReport() {
 
   html += '</div>';
 
-  // Alert summary section
-  if (state.alerts.length > 0) {
+  // Alert summary section (live mode only)
+  if (!isHistorical && state.alerts.length > 0) {
     html += '<div class="health-section">';
     html += '<div class="health-section-title">Recent Alert Activity</div>';
 
@@ -4726,10 +5044,296 @@ function renderHealthReport() {
       </tr>`;
     }
     html += '</tbody></table>';
+
+    // Individual alert messages (most recent 20)
+    const recentAlerts = [...state.alerts]
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      .slice(0, 20);
+
+    if (recentAlerts.length > 0) {
+      html += '<div class="health-section-title" style="margin-top:16px">Individual Alert Messages</div>';
+      html += '<table class="insights-table">';
+      html += '<thead><tr><th>Time</th><th>Topic</th><th>Severity</th><th>Message Size</th><th>Threshold</th><th>Action</th></tr></thead>';
+      html += '<tbody>';
+      for (const a of recentAlerts) {
+        const sevColor = a.severity === 'critical' ? 'var(--red)' : 'var(--yellow)';
+        const sevLabel = a.severity === 'critical' ? 'CRITICAL' : 'WARNING';
+        const timeStr = formatTime(a.timestamp);
+        const downloadLink = a.capture_id
+          ? `<a href="/api/alerts/download/${a.capture_id}" style="color:var(--cyan);text-decoration:underline;cursor:pointer" download>download</a>`
+          : '<span style="color:var(--text-dim)">-</span>';
+        html += `<tr>
+          <td>${timeStr}</td>
+          <td style="color:var(--magenta);font-weight:600">${escapeHtml(a.topic)}</td>
+          <td style="color:${sevColor};font-weight:700">${sevLabel}</td>
+          <td>${formatBytes(a.message_size)}</td>
+          <td>${formatBytes(a.threshold)}</td>
+          <td>${downloadLink}</td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+    }
+
     html += '</div>';
   }
 
   body.innerHTML = html;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONSUMER PROGRESS
+   ═══════════════════════════════════════════════════════════════════ */
+
+let progressRefreshInterval = null;
+const PROGRESS_CHART_COLORS = ['#8be9fd', '#ff79c6', '#50fa7b', '#f1fa8c', '#ffb86c', '#ff5555', '#bd93f9', '#6272a4'];
+
+function openConsumerProgress() {
+  document.getElementById('progressOverlay').classList.add('active');
+  refreshConsumerProgress();
+  if (progressRefreshInterval) clearInterval(progressRefreshInterval);
+  progressRefreshInterval = setInterval(refreshConsumerProgress, 5000);
+}
+
+function closeConsumerProgress() {
+  document.getElementById('progressOverlay').classList.remove('active');
+  if (progressRefreshInterval) {
+    clearInterval(progressRefreshInterval);
+    progressRefreshInterval = null;
+  }
+}
+
+async function refreshConsumerProgress() {
+  try {
+    const [progressResp, timeseriesResp] = await Promise.all([
+      fetch('/api/consumer/progress'),
+      fetch('/api/consumer/progress/timeseries'),
+    ]);
+    if (progressResp.ok) {
+      state.progressData = await progressResp.json();
+    }
+    if (timeseriesResp.ok) {
+      state.progressTimeseries = await timeseriesResp.json();
+    }
+    renderConsumerProgress();
+  } catch (e) {
+    console.error('Failed to fetch consumer progress:', e);
+  }
+}
+
+function getProgressColor(pct) {
+  if (pct >= 100) return 'var(--green)';
+  if (pct >= 75) return 'var(--cyan)';
+  if (pct >= 25) return 'var(--yellow)';
+  return 'var(--red)';
+}
+
+function renderConsumerProgress() {
+  const body = document.getElementById('progressBody');
+  const tsEl = document.getElementById('progressTimestamp');
+  tsEl.textContent = 'updated ' + new Date().toLocaleTimeString('en-US', { hour12: false });
+
+  if (!state.progressData || !state.progressData.topics || state.progressData.topics.length === 0) {
+    body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">no consumer progress data yet — subscribe to topics to start tracking</div>';
+    return;
+  }
+
+  let html = '';
+
+  // Sort topics: least progress first (they need attention)
+  const sortedTopics = [...state.progressData.topics].sort((a, b) => a.overall_progress_pct - b.overall_progress_pct);
+
+  for (const topic of sortedTopics) {
+    const pct = topic.overall_progress_pct;
+    const color = getProgressColor(pct);
+    const pctLabel = pct >= 100 ? 'CAUGHT UP' : pct.toFixed(1) + '%';
+
+    html += `<div class="progress-card">`;
+    html += `<div class="progress-card-header">`;
+    html += `<span class="progress-card-topic">${escapeHtml(topic.topic)}</span>`;
+    html += `<span class="progress-card-pct" style="color:${color}">${pctLabel}</span>`;
+    html += `<span style="flex:1"></span>`;
+    html += `<span style="font-size:11px;color:var(--text-dim)">${topic.total_messages_consumed.toLocaleString()} messages consumed</span>`;
+    html += `</div>`;
+
+    // Progress bar
+    html += `<div class="progress-bar-bg">`;
+    html += `<div class="progress-bar-fill" style="width:${Math.min(pct, 100)}%;background:${color}"></div>`;
+    html += `<div class="progress-bar-text">${pct.toFixed(1)}%</div>`;
+    html += `</div>`;
+
+    // Stats row
+    if (topic.partitions.length > 0) {
+      const firstOff = Math.min(...topic.partitions.map(p => p.first_offset));
+      const currentOff = Math.max(...topic.partitions.map(p => p.current_offset));
+      const logEnd = Math.max(...topic.partitions.map(p => p.log_end_offset));
+
+      html += `<div class="progress-stats-row">`;
+      html += `<div>First Offset<span class="val">${firstOff.toLocaleString()}</span></div>`;
+      html += `<div>Current Offset<span class="val">${currentOff.toLocaleString()}</span></div>`;
+      html += `<div>Log End<span class="val">${logEnd.toLocaleString()}</span></div>`;
+      html += `<div>Partitions<span class="val">${topic.partitions.length}</span></div>`;
+      html += `</div>`;
+
+      // Collapsible partition detail table
+      const partId = 'partitions-' + topic.topic.replace(/[^a-zA-Z0-9]/g, '_');
+      html += `<div class="progress-partition-toggle" onclick="document.getElementById('${partId}').style.display = document.getElementById('${partId}').style.display === 'none' ? 'table' : 'none'">show partitions</div>`;
+      html += `<table class="progress-partition-table" id="${partId}" style="display:none">`;
+      html += `<thead><tr><th>Partition</th><th>First</th><th>Current</th><th>End</th><th>Messages</th><th>Progress</th></tr></thead>`;
+      html += `<tbody>`;
+      for (const p of topic.partitions) {
+        const pColor = getProgressColor(p.progress_pct);
+        html += `<tr>
+          <td style="color:var(--cyan)">${p.partition}</td>
+          <td>${p.first_offset.toLocaleString()}</td>
+          <td>${p.current_offset.toLocaleString()}</td>
+          <td>${p.log_end_offset.toLocaleString()}</td>
+          <td>${p.messages_consumed.toLocaleString()}</td>
+          <td style="color:${pColor};font-weight:600">${p.progress_pct.toFixed(1)}%</td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+
+    html += `</div>`;
+  }
+
+  // Time-series chart section
+  if (state.progressTimeseries && state.progressTimeseries.length > 1) {
+    html += `<div class="progress-chart-section">`;
+    html += `<div class="progress-chart-title">Consumption Over Time</div>`;
+    html += `<canvas id="progressCanvas" style="width:100%;height:250px"></canvas>`;
+    html += `</div>`;
+  }
+
+  body.innerHTML = html;
+
+  // Render chart after DOM update
+  if (state.progressTimeseries && state.progressTimeseries.length > 1) {
+    setTimeout(() => renderProgressChart(), 0);
+  }
+}
+
+function renderProgressChart() {
+  const canvas = document.getElementById('progressCanvas');
+  if (!canvas) return;
+
+  const container = canvas.parentElement;
+  const ctx = canvas.getContext('2d');
+  const rect = container.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+
+  canvas.width = rect.width * dpr;
+  canvas.height = 250 * dpr;
+  canvas.style.height = '250px';
+  ctx.scale(dpr, dpr);
+
+  const W = rect.width;
+  const H = 250;
+  const pad = { top: 20, right: 20, bottom: 30, left: 60 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const data = state.progressTimeseries;
+  if (!data || data.length < 2) return;
+
+  // Collect all unique topics
+  const topicSet = new Set();
+  for (const point of data) {
+    for (const t of point.topics) {
+      topicSet.add(t.topic);
+    }
+  }
+  const topics = [...topicSet].sort();
+
+  // Time range
+  const times = data.map(d => new Date(d.timestamp).getTime());
+  const tMin = Math.min(...times);
+  const tMax = Math.max(...times);
+  const tRange = tMax - tMin || 1;
+
+  // Y-axis: messages consumed (find max)
+  let yMax = 0;
+  for (const point of data) {
+    for (const t of point.topics) {
+      if (t.messages_consumed > yMax) yMax = t.messages_consumed;
+    }
+  }
+  if (yMax === 0) yMax = 100;
+  yMax = Math.ceil(yMax * 1.1);
+
+  const xScale = (t) => pad.left + ((t - tMin) / tRange) * plotW;
+  const yScale = (v) => pad.top + plotH - (v / yMax) * plotH;
+
+  // Grid
+  ctx.strokeStyle = getCssVar('--border') || '#333';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (plotH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+  }
+
+  // Y-axis labels
+  ctx.fillStyle = getCssVar('--text-dim') || '#666';
+  ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const val = yMax - (yMax / 4) * i;
+    const y = pad.top + (plotH / 4) * i;
+    ctx.fillText(val >= 1000 ? (val / 1000).toFixed(0) + 'k' : val.toFixed(0), pad.left - 6, y + 4);
+  }
+
+  // X-axis time labels
+  ctx.textAlign = 'center';
+  const numLabels = Math.min(5, data.length);
+  for (let i = 0; i < numLabels; i++) {
+    const idx = Math.floor(i * (data.length - 1) / (numLabels - 1));
+    const t = new Date(data[idx].timestamp);
+    const label = t.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    ctx.fillText(label, xScale(times[idx]), H - 6);
+  }
+
+  // Draw lines per topic
+  topics.forEach((topic, ti) => {
+    const color = PROGRESS_CHART_COLORS[ti % PROGRESS_CHART_COLORS.length];
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+
+    let started = false;
+    for (let i = 0; i < data.length; i++) {
+      const entry = data[i].topics.find(t => t.topic === topic);
+      if (!entry) continue;
+      const x = xScale(times[i]);
+      const y = yScale(entry.messages_consumed);
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Points
+    ctx.fillStyle = color;
+    for (let i = 0; i < data.length; i++) {
+      const entry = data[i].topics.find(t => t.topic === topic);
+      if (!entry) continue;
+      const x = xScale(times[i]);
+      const y = yScale(entry.messages_consumed);
+      ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+    }
+  });
+
+  // Legend
+  const legendY = pad.top + 4;
+  let legendX = pad.left + 8;
+  ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+  topics.forEach((topic, ti) => {
+    const color = PROGRESS_CHART_COLORS[ti % PROGRESS_CHART_COLORS.length];
+    ctx.fillStyle = color;
+    ctx.fillRect(legendX, legendY - 6, 10, 3);
+    ctx.fillText(topic, legendX + 14, legendY);
+    legendX += ctx.measureText(topic).width + 30;
+  });
 }
 
 // Start

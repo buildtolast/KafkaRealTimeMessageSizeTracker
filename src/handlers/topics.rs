@@ -5,6 +5,7 @@ use crate::models::{
 };
 use crate::storage::{LagTimeSeries, TimeSeriesStorage};
 use crate::tracker::alerts::AlertEngine;
+use crate::tracker::progress::ProgressTracker;
 use crate::tracker::stats::StatsEngine;
 use crate::TopicManager;
 use actix_web::{web, HttpResponse};
@@ -138,6 +139,7 @@ pub async fn reset_all(
     topic_manager: web::Data<Arc<TopicManager>>,
     stats_engine: web::Data<StatsEngine>,
     alert_engine: web::Data<AlertEngine>,
+    progress_tracker: web::Data<ProgressTracker>,
     storage: web::Data<TimeSeriesStorage>,
     lag_timeseries: web::Data<LagTimeSeries>,
     tracked_topics: web::Data<Arc<RwLock<HashSet<String>>>>,
@@ -151,10 +153,11 @@ pub async fn reset_all(
     // Clear all backend state
     stats_engine.clear().await;
     alert_engine.clear_alerts().await;
+    progress_tracker.clear().await;
     storage.clear().await;
     lag_timeseries.clear().await;
 
-    log::info!("Dashboard reset: all consumers stopped, stats/alerts/storage cleared");
+    log::info!("Dashboard reset: all consumers stopped, stats/alerts/storage/progress cleared");
     HttpResponse::Ok().json(serde_json::json!({ "status": "reset" }))
 }
 

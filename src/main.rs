@@ -8,13 +8,14 @@ mod mongo;
 mod storage;
 mod tracker;
 
-use crate::config::{AppConfig, Args};
+use crate::config::{AppConfig, Args, SharedSecurityConfig};
 use crate::kafka::admin;
 use crate::kafka::admin::{AdminConsumer, SharedKafkaStats};
 use crate::models::{CapturedMessage, LagDataPoint, MessageSizeEvent, StartPosition, TopicLag, WsMessage};
 use crate::mongo::{MongoStore, PersistedAlert, PersistedMessage, SharedMongoStore};
 use crate::storage::{LagTimeSeries, TimeSeriesStorage};
 use crate::tracker::alerts::AlertEngine;
+use crate::tracker::progress::ProgressTracker;
 use crate::tracker::stats::StatsEngine;
 use actix_cors::Cors;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
@@ -40,8 +41,10 @@ pub struct TopicManager {
     consumer_group: String,
     stats_engine: StatsEngine,
     alert_engine: AlertEngine,
+    progress_tracker: ProgressTracker,
     ws_broadcast: broadcast::Sender<WsMessage>,
     mongo_store: SharedMongoStore,
+    security: SharedSecurityConfig,
 }
 
 impl TopicManager {
@@ -50,8 +53,10 @@ impl TopicManager {
         consumer_group: String,
         stats_engine: StatsEngine,
         alert_engine: AlertEngine,
+        progress_tracker: ProgressTracker,
         ws_broadcast: broadcast::Sender<WsMessage>,
         mongo_store: SharedMongoStore,
+        security: SharedSecurityConfig,
     ) -> Self {
         Self {
             consumers: Arc::new(RwLock::new(HashMap::new())),
@@ -59,8 +64,10 @@ impl TopicManager {
             consumer_group,
             stats_engine,
             alert_engine,
+            progress_tracker,
             ws_broadcast,
             mongo_store,
+            security,
         }
     }
 
@@ -97,10 +104,12 @@ impl TopicManager {
 
         // Spawn the consumer task
         let brokers = self.brokers.read().await.clone();
+        let security = self.security.read().await.clone();
         let topic_owned = topic.to_string();
         let group = self.consumer_group.clone();
         let stats = self.stats_engine.clone();
         let alerts = self.alert_engine.clone();
+        let progress = self.progress_tracker.clone();
         let ws_tx = self.ws_broadcast.clone();
         let event_tx = tx.clone();
         let consumer_alerts = self.alert_engine.clone();
@@ -119,6 +128,7 @@ impl TopicManager {
                     event_tx,
                     consumer_alerts,
                     start_position,
+                    security,
                 )
                 .await;
             });
@@ -132,6 +142,9 @@ impl TopicManager {
                     Ok(event) => {
                         // Update stats
                         stats.record_event(&event).await;
+
+                        // Track consumer progress
+                        progress.record_offset(&event.topic, event.partition, event.offset).await;
 
                         // Check for alerts
                         if let Some(mut alert) = alerts.check_event(&event).await {
@@ -271,9 +284,20 @@ async fn main() -> std::io::Result<()> {
     );
 
     // Create shared state
+    let security_config: SharedSecurityConfig =
+        Arc::new(RwLock::new(config.security.clone()));
+
+    if config.security.is_configured() {
+        log::info!(
+            "Kafka security: protocol={}, mechanism={}",
+            config.security.security_protocol.as_deref().unwrap_or("none"),
+            config.security.sasl_mechanism.as_deref().unwrap_or("none")
+        );
+    }
+
     let kafka_stats: SharedKafkaStats = Arc::new(std::sync::RwLock::new(None));
     let admin_consumer: AdminConsumer =
-        admin::create_admin_consumer(&config.kafka_brokers, kafka_stats.clone())
+        admin::create_admin_consumer(&config.kafka_brokers, kafka_stats.clone(), &config.security)
             .expect("Failed to create admin consumer");
     let admin_consumer = Arc::new(Mutex::new(admin_consumer));
 
@@ -307,13 +331,17 @@ async fn main() -> std::io::Result<()> {
         Arc::new(None)
     };
 
+    let progress_tracker = ProgressTracker::new();
+
     let topic_manager = Arc::new(TopicManager::new(
         config.kafka_brokers.clone(),
         config.consumer_group.clone(),
         stats_engine.clone(),
         alert_engine.clone(),
+        progress_tracker.clone(),
         ws_tx.clone(),
         mongo_store.clone(),
+        security_config.clone(),
     ));
 
     let brokers_shared = Arc::new(RwLock::new(config.kafka_brokers.clone()));
@@ -383,6 +411,7 @@ async fn main() -> std::io::Result<()> {
     // Background task: consumer lag collector (every 10 seconds)
     let admin_for_lag = admin_consumer.clone();
     let lag_ts_for_collector = lag_timeseries.clone();
+    let progress_for_lag = progress_tracker.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
         loop {
@@ -422,6 +451,9 @@ async fn main() -> std::io::Result<()> {
                     total_lag,
                 };
                 lag_ts_for_collector.append(point).await;
+
+                // Snapshot consumer progress (reuses same watermark data)
+                progress_for_lag.snapshot(&partition_lags).await;
             }
         }
     });
@@ -465,6 +497,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(lag_timeseries.clone()))
             .app_data(web::Data::new(topic_manager.clone()))
             .app_data(web::Data::new(kafka_stats.clone()))
+            .app_data(web::Data::new(security_config.clone()))
+            .app_data(web::Data::new(progress_tracker.clone()))
             .route("/", web::get().to(index))
             .route("/api/topics", web::get().to(handlers::topics::get_topics))
             .route(
@@ -537,6 +571,14 @@ async fn main() -> std::io::Result<()> {
             .route(
                 "/api/snapshot",
                 web::get().to(handlers::browse::get_global_snapshot),
+            )
+            .route(
+                "/api/consumer/progress",
+                web::get().to(handlers::progress::get_consumer_progress),
+            )
+            .route(
+                "/api/consumer/progress/timeseries",
+                web::get().to(handlers::progress::get_progress_timeseries),
             )
             .route(
                 "/api/persisted/messages",
