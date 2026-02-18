@@ -10,6 +10,7 @@ mod tracker;
 
 use crate::config::{AppConfig, Args};
 use crate::kafka::admin;
+use crate::kafka::admin::{AdminConsumer, SharedKafkaStats};
 use crate::models::{CapturedMessage, LagDataPoint, MessageSizeEvent, StartPosition, TopicLag, WsMessage};
 use crate::mongo::{MongoStore, PersistedAlert, PersistedMessage, SharedMongoStore};
 use crate::storage::{LagTimeSeries, TimeSeriesStorage};
@@ -18,7 +19,6 @@ use crate::tracker::stats::StatsEngine;
 use actix_cors::Cors;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 use clap::Parser;
-use rdkafka::consumer::BaseConsumer;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -271,8 +271,10 @@ async fn main() -> std::io::Result<()> {
     );
 
     // Create shared state
-    let admin_consumer: BaseConsumer = admin::create_admin_consumer(&config.kafka_brokers)
-        .expect("Failed to create admin consumer");
+    let kafka_stats: SharedKafkaStats = Arc::new(std::sync::RwLock::new(None));
+    let admin_consumer: AdminConsumer =
+        admin::create_admin_consumer(&config.kafka_brokers, kafka_stats.clone())
+            .expect("Failed to create admin consumer");
     let admin_consumer = Arc::new(Mutex::new(admin_consumer));
 
     let stats_engine = StatsEngine::new();
@@ -424,6 +426,22 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
+    // Background task: poll admin consumer for statistics callbacks (every 1 second)
+    // rdkafka statistics callbacks only fire when the consumer is polled.
+    let admin_for_poll = admin_consumer.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        loop {
+            interval.tick().await;
+            let consumer = admin_for_poll.clone();
+            let _ = web::block(move || {
+                let consumer = consumer.blocking_lock();
+                consumer.poll(std::time::Duration::from_millis(0));
+            })
+            .await;
+        }
+    });
+
     let bind_addr = format!("{}:{}", config.server_host, config.server_port);
     log::info!("Listening on http://{}", bind_addr);
 
@@ -446,6 +464,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(mongo_store.clone()))
             .app_data(web::Data::new(lag_timeseries.clone()))
             .app_data(web::Data::new(topic_manager.clone()))
+            .app_data(web::Data::new(kafka_stats.clone()))
             .route("/", web::get().to(index))
             .route("/api/topics", web::get().to(handlers::topics::get_topics))
             .route(

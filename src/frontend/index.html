@@ -1209,6 +1209,14 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
 .lag-medium { background: var(--yellow); }
 .lag-high { background: var(--red); }
 
+/* ── Broker Metrics Cards ── */
+.broker-metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.broker-metric-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; font-size: 12px; }
+.broker-metric-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.broker-state { font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.broker-metric-row { display: flex; justify-content: space-between; padding: 3px 0; color: var(--text); }
+.broker-metric-row span:first-child { color: var(--text-dim); }
+
 /* ── Lag Time-Series Chart ── */
 .lag-chart-container {
   position: relative;
@@ -3601,6 +3609,43 @@ function renderInsights(data) {
     html += '</tbody></table></div>';
   }
 
+  // ── Broker Performance Metrics ──
+  if (data.broker_metrics && data.broker_metrics.length > 0) {
+    html += '<div class="insights-section">';
+    html += '<div class="insights-section-title"><span class="prompt">&gt;</span> Broker Performance</div>';
+    html += '<div class="broker-metrics-grid">';
+    for (const bm of data.broker_metrics) {
+      const stateColor = bm.state === 'UP' ? 'var(--green)' : bm.state === 'DOWN' ? 'var(--red)' : 'var(--yellow)';
+      html += `<div class="broker-metric-card">
+        <div class="broker-metric-header">
+          <span style="color:var(--magenta);font-weight:700">Node #${bm.node_id}</span>
+          <span class="broker-state" style="color:${stateColor}">${bm.state}</span>
+        </div>
+        <div class="broker-metric-row"><span>TX</span><span style="color:var(--green)">${formatBytes(bm.tx_bytes)}</span></div>
+        <div class="broker-metric-row"><span>RX</span><span style="color:var(--cyan)">${formatBytes(bm.rx_bytes)}</span></div>`;
+      if (bm.rtt) {
+        html += `<div class="broker-metric-row"><span>RTT avg</span><span>${(bm.rtt.avg / 1000).toFixed(1)}ms</span></div>`;
+        html += `<div class="broker-metric-row"><span>RTT p99</span><span style="color:${bm.rtt.p99 > 100000 ? 'var(--red)' : 'var(--text)'}">${(bm.rtt.p99 / 1000).toFixed(1)}ms</span></div>`;
+      }
+      if (bm.throttle && bm.throttle.cnt > 0) {
+        html += `<div class="broker-metric-row"><span>Throttle</span><span style="color:var(--yellow)">${bm.throttle.avg}ms avg (${bm.throttle.cnt})</span></div>`;
+      }
+      const totalErrors = bm.tx_errors + bm.rx_errors;
+      html += `<div class="broker-metric-row"><span>Errors</span><span style="color:${totalErrors > 0 ? 'var(--red)' : 'var(--text-dim)'}">${totalErrors}</span></div>`;
+      html += `<div class="broker-metric-row"><span>Timeouts</span><span style="color:${bm.request_timeouts > 0 ? 'var(--yellow)' : 'var(--text-dim)'}">${bm.request_timeouts}</span></div>`;
+      html += `<div class="broker-metric-row"><span>Retries</span><span>${bm.request_retries}</span></div>`;
+      html += `<div class="broker-metric-row"><span>In-flight</span><span>${bm.waitresp_cnt}</span></div>`;
+      if (bm.connects !== null && bm.connects !== undefined) {
+        html += `<div class="broker-metric-row"><span>Connects</span><span>${bm.connects}</span></div>`;
+      }
+      if (bm.disconnects !== null && bm.disconnects !== undefined && bm.disconnects > 0) {
+        html += `<div class="broker-metric-row"><span>Disconnects</span><span style="color:var(--yellow)">${bm.disconnects}</span></div>`;
+      }
+      html += '</div>';
+    }
+    html += '</div></div>';
+  }
+
   // ── Topic Throughput ──
   if (data.topic_throughput && data.topic_throughput.length > 0) {
     html += '<div class="insights-section">';
@@ -3914,13 +3959,15 @@ async function startDashboard() {
     if (state.selectedTopic) fetchHistory();
   }, 60000);
 
-  // Periodic global history refresh
+  // Periodic global history refresh (every 15s for responsiveness)
   setInterval(() => {
     fetchGlobalHistory();
-  }, 60000);
+  }, 15000);
 
-  // Initial global history fetch (delayed to let topics load)
+  // Initial global history fetch: retry aggressively until data appears
   setTimeout(fetchGlobalHistory, 2000);
+  setTimeout(fetchGlobalHistory, 5000);
+  setTimeout(fetchGlobalHistory, 10000);
 }
 
 async function init() {

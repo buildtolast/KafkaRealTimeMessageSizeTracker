@@ -356,6 +356,41 @@ pub struct ClusterInsightsResponse {
     pub consumer_lag: Vec<PartitionLag>,
     pub topic_throughput: Vec<TopicThroughput>,
     pub recommendations: Vec<ThroughputRecommendation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub broker_metrics: Option<Vec<BrokerMetrics>>,
+}
+
+/// Per-broker runtime metrics extracted from rdkafka statistics.
+#[derive(Debug, Clone, Serialize)]
+pub struct BrokerMetrics {
+    pub node_id: i32,
+    pub name: String,
+    pub state: String,
+    pub state_age_secs: f64,
+    pub tx_bytes: u64,
+    pub rx_bytes: u64,
+    pub tx_errors: u64,
+    pub rx_errors: u64,
+    pub request_timeouts: u64,
+    pub request_retries: u64,
+    pub rtt: Option<LatencyWindow>,
+    pub throttle: Option<LatencyWindow>,
+    pub outbuf_cnt: i64,
+    pub waitresp_cnt: i64,
+    pub connects: Option<i64>,
+    pub disconnects: Option<i64>,
+}
+
+/// Rolling latency window with percentiles (microseconds).
+#[derive(Debug, Clone, Serialize)]
+pub struct LatencyWindow {
+    pub min: i64,
+    pub max: i64,
+    pub avg: i64,
+    pub p50: i64,
+    pub p95: i64,
+    pub p99: i64,
+    pub cnt: i64,
 }
 
 /// A single lag time-series data point: per-topic aggregated lag at a moment in time.
@@ -627,6 +662,7 @@ mod tests {
                 severity: "info".into(),
                 message: "Consider compression".into(),
             }],
+            broker_metrics: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains(r#""total_topics":4"#));
@@ -634,6 +670,99 @@ mod tests {
         assert!(json.contains(r#""lag":50"#));
         assert!(json.contains(r#""messages_per_sec":25.0"#));
         assert!(json.contains(r#""Consider compression""#));
+        // broker_metrics is None, should not appear in JSON (skip_serializing_if)
+        assert!(!json.contains("broker_metrics"));
+    }
+
+    #[test]
+    fn test_broker_metrics_serialization() {
+        let metrics = BrokerMetrics {
+            node_id: 0,
+            name: "kafka:9092/0".into(),
+            state: "UP".into(),
+            state_age_secs: 120.5,
+            tx_bytes: 50000,
+            rx_bytes: 80000,
+            tx_errors: 0,
+            rx_errors: 0,
+            request_timeouts: 0,
+            request_retries: 2,
+            rtt: Some(LatencyWindow {
+                min: 100,
+                max: 5000,
+                avg: 800,
+                p50: 600,
+                p95: 2500,
+                p99: 4500,
+                cnt: 100,
+            }),
+            throttle: None,
+            outbuf_cnt: 0,
+            waitresp_cnt: 1,
+            connects: Some(3),
+            disconnects: Some(0),
+        };
+        let json = serde_json::to_string(&metrics).unwrap();
+        assert!(json.contains(r#""node_id":0"#));
+        assert!(json.contains(r#""state":"UP""#));
+        assert!(json.contains(r#""tx_bytes":50000"#));
+        assert!(json.contains(r#""rx_bytes":80000"#));
+        assert!(json.contains(r#""p95":2500"#));
+        assert!(json.contains(r#""connects":3"#));
+    }
+
+    #[test]
+    fn test_latency_window_serialization() {
+        let window = LatencyWindow {
+            min: 50,
+            max: 10000,
+            avg: 1500,
+            p50: 1000,
+            p95: 5000,
+            p99: 9000,
+            cnt: 200,
+        };
+        let json = serde_json::to_string(&window).unwrap();
+        assert!(json.contains(r#""min":50"#));
+        assert!(json.contains(r#""max":10000"#));
+        assert!(json.contains(r#""avg":1500"#));
+        assert!(json.contains(r#""p50":1000"#));
+        assert!(json.contains(r#""cnt":200"#));
+    }
+
+    #[test]
+    fn test_cluster_insights_with_broker_metrics() {
+        let resp = ClusterInsightsResponse {
+            brokers: vec![],
+            cluster_id: None,
+            total_topics: 1,
+            total_partitions: 3,
+            consumer_lag: vec![],
+            topic_throughput: vec![],
+            recommendations: vec![],
+            broker_metrics: Some(vec![BrokerMetrics {
+                node_id: 1,
+                name: "broker-1:9092/1".into(),
+                state: "UP".into(),
+                state_age_secs: 60.0,
+                tx_bytes: 1000,
+                rx_bytes: 2000,
+                tx_errors: 1,
+                rx_errors: 0,
+                request_timeouts: 0,
+                request_retries: 0,
+                rtt: None,
+                throttle: None,
+                outbuf_cnt: 0,
+                waitresp_cnt: 0,
+                connects: None,
+                disconnects: None,
+            }]),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""broker_metrics""#));
+        assert!(json.contains(r#""node_id":1"#));
+        assert!(json.contains(r#""tx_errors":1"#));
     }
 
     #[test]

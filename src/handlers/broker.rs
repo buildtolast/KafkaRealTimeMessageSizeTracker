@@ -1,9 +1,9 @@
 use crate::kafka::admin;
+use crate::kafka::admin::{AdminConsumer, SharedKafkaStats};
 use crate::models::{BrokerRequest, BrokerResponse, LagHistoryResponse};
 use crate::storage::LagTimeSeries;
 use crate::tracker::stats::StatsEngine;
 use actix_web::{web, HttpResponse};
-use rdkafka::consumer::BaseConsumer;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
@@ -19,12 +19,13 @@ pub async fn get_broker(brokers: web::Data<Arc<RwLock<String>>>) -> HttpResponse
 pub async fn set_broker(
     body: web::Json<BrokerRequest>,
     brokers: web::Data<Arc<RwLock<String>>>,
-    admin_consumer: web::Data<Arc<Mutex<BaseConsumer>>>,
+    admin_consumer: web::Data<Arc<Mutex<AdminConsumer>>>,
+    kafka_stats: web::Data<SharedKafkaStats>,
 ) -> HttpResponse {
     let new_brokers = body.into_inner().brokers;
 
     // Try creating a new admin consumer with the new brokers
-    match admin::create_admin_consumer(&new_brokers) {
+    match admin::create_admin_consumer(&new_brokers, kafka_stats.get_ref().clone()) {
         Ok(new_consumer) => {
             // Update shared state
             let mut brokers_lock = brokers.write().await;
@@ -49,7 +50,7 @@ pub async fn set_broker(
 /// GET /api/broker/discover — discover all brokers in the Kafka cluster.
 pub async fn discover_brokers(
     brokers: web::Data<Arc<RwLock<String>>>,
-    admin_consumer: web::Data<Arc<Mutex<BaseConsumer>>>,
+    admin_consumer: web::Data<Arc<Mutex<AdminConsumer>>>,
 ) -> HttpResponse {
     let current = brokers.read().await.clone();
     let consumer = admin_consumer.clone();
@@ -78,16 +79,18 @@ pub async fn get_lag_history(lag_timeseries: web::Data<LagTimeSeries>) -> HttpRe
 
 /// GET /api/cluster/insights — full cluster insights with lag, throughput, and recommendations.
 pub async fn get_cluster_insights(
-    admin_consumer: web::Data<Arc<Mutex<BaseConsumer>>>,
+    admin_consumer: web::Data<Arc<Mutex<AdminConsumer>>>,
     stats_engine: web::Data<StatsEngine>,
+    kafka_stats: web::Data<SharedKafkaStats>,
 ) -> HttpResponse {
     let consumer = admin_consumer.clone();
     let stats = stats_engine.clone();
     let all_stats = stats.get_all_stats().await;
+    let ks = kafka_stats.get_ref().clone();
 
     match web::block(move || {
         let consumer = consumer.blocking_lock();
-        admin::build_cluster_insights(&consumer, all_stats)
+        admin::build_cluster_insights(&consumer, all_stats, &ks)
     })
     .await
     {

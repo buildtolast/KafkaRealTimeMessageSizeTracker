@@ -17,7 +17,7 @@ Real-time Kafka message size monitoring dashboard with configurable alerts, hist
 - **4-state topic lifecycle** — sidebar topics sorted by recent average message size with 4-state lifecycle: Critical → Warning → Recovered (30s cooldown) → OK, each with unique per-topic colors from a palette
 - **Enhanced alerts** — time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery** — discover cluster brokers via metadata API, popover UI with click-to-connect
-- **Cluster insights** — full-screen overlay showing brokers, topics, partitions, consumer lag, throughput per topic, and recommendations
+- **Cluster insights** — full-screen overlay showing brokers, topics, partitions, consumer lag, throughput per topic, per-broker performance metrics (state, TX/RX bytes, RTT latency, errors, throttle, retries, in-flight via rdkafka statistics), and recommendations
 - **Health report** — non-technical summary overlay showing per-topic health status with plain-English descriptions of abnormalities, auto-refreshes every 5 seconds
 - **MongoDB persistence** — optional persistence of oversized messages and alerts to MongoDB, with a dedicated browser tab for querying persisted data
 - **4 UI themes** — Terminal/Chalk (default), Tokyo Night, Dracula, Light, with theme switcher and localStorage persistence

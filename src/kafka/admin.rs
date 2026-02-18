@@ -1,20 +1,48 @@
 use crate::models::{
-    BrokerDiscoveryResponse, BrokerInfo, ClusterInsightsResponse, PartitionLag,
-    ThroughputRecommendation, TopicThroughput,
+    BrokerDiscoveryResponse, BrokerInfo, BrokerMetrics, ClusterInsightsResponse, LatencyWindow,
+    PartitionLag, ThroughputRecommendation, TopicThroughput,
 };
-use rdkafka::consumer::{BaseConsumer, Consumer};
-use rdkafka::ClientConfig;
+use rdkafka::consumer::{BaseConsumer, Consumer, ConsumerContext};
+use rdkafka::statistics::Statistics;
+use rdkafka::{ClientConfig, ClientContext};
+use std::sync::{Arc, RwLock as StdRwLock};
 use std::time::Duration;
 
-/// Create a BaseConsumer for metadata operations (listing topics).
-pub fn create_admin_consumer(brokers: &str) -> Result<BaseConsumer, rdkafka::error::KafkaError> {
+/// Shared statistics snapshot, updated by the rdkafka stats callback.
+pub type SharedKafkaStats = Arc<StdRwLock<Option<Statistics>>>;
+
+/// Custom context that captures rdkafka statistics into a shared slot.
+pub struct StatsContext {
+    stats: SharedKafkaStats,
+}
+
+impl ClientContext for StatsContext {
+    fn stats(&self, statistics: Statistics) {
+        if let Ok(mut guard) = self.stats.write() {
+            *guard = Some(statistics);
+        }
+    }
+}
+
+impl ConsumerContext for StatsContext {}
+
+/// Admin consumer type with stats context.
+pub type AdminConsumer = BaseConsumer<StatsContext>;
+
+/// Create an AdminConsumer for metadata operations with statistics collection.
+pub fn create_admin_consumer(
+    brokers: &str,
+    stats: SharedKafkaStats,
+) -> Result<AdminConsumer, rdkafka::error::KafkaError> {
+    let context = StatsContext { stats };
     ClientConfig::new()
         .set("bootstrap.servers", brokers)
-        .create()
+        .set("statistics.interval.ms", "5000")
+        .create_with_context(context)
 }
 
 /// List all non-internal topics from the Kafka cluster.
-pub fn list_topics(consumer: &BaseConsumer) -> Result<Vec<String>, rdkafka::error::KafkaError> {
+pub fn list_topics(consumer: &AdminConsumer) -> Result<Vec<String>, rdkafka::error::KafkaError> {
     let metadata = consumer.fetch_metadata(None, Duration::from_secs(10))?;
     let mut topics: Vec<String> = metadata
         .topics()
@@ -28,7 +56,7 @@ pub fn list_topics(consumer: &BaseConsumer) -> Result<Vec<String>, rdkafka::erro
 
 /// Discover brokers in the cluster and return their info + cluster ID.
 pub fn discover_brokers(
-    consumer: &BaseConsumer,
+    consumer: &AdminConsumer,
     current_brokers: &str,
 ) -> Result<BrokerDiscoveryResponse, rdkafka::error::KafkaError> {
     let metadata = consumer.fetch_metadata(None, Duration::from_secs(10))?;
@@ -54,7 +82,7 @@ pub fn discover_brokers(
 /// Fetch consumer lag for all non-internal topics using watermark offsets.
 /// This measures the gap between the tracker's consumer position and the log end offset.
 pub fn fetch_consumer_lag(
-    consumer: &BaseConsumer,
+    consumer: &AdminConsumer,
 ) -> Result<Vec<PartitionLag>, rdkafka::error::KafkaError> {
     let metadata = consumer.fetch_metadata(None, Duration::from_secs(10))?;
     let mut lags = Vec::new();
@@ -95,10 +123,62 @@ pub fn fetch_consumer_lag(
     Ok(lags)
 }
 
+/// Convert an rdkafka statistics Window to our LatencyWindow model.
+fn to_latency_window(w: &rdkafka::statistics::Window) -> LatencyWindow {
+    LatencyWindow {
+        min: w.min,
+        max: w.max,
+        avg: w.avg,
+        p50: w.p50,
+        p95: w.p95,
+        p99: w.p99,
+        cnt: w.cnt,
+    }
+}
+
+/// Extract per-broker metrics from the latest statistics snapshot.
+pub fn extract_broker_metrics(stats: &SharedKafkaStats) -> Option<Vec<BrokerMetrics>> {
+    let guard = stats.read().ok()?;
+    let statistics = guard.as_ref()?;
+
+    let mut metrics: Vec<BrokerMetrics> = statistics
+        .brokers
+        .values()
+        .filter(|b| b.nodeid >= 0) // skip bootstrap/internal nodes
+        .map(|b| BrokerMetrics {
+            node_id: b.nodeid,
+            name: b.name.clone(),
+            state: b.state.clone(),
+            state_age_secs: b.stateage as f64 / 1_000_000.0,
+            tx_bytes: b.txbytes,
+            rx_bytes: b.rxbytes,
+            tx_errors: b.txerrs,
+            rx_errors: b.rxerrs,
+            request_timeouts: b.req_timeouts,
+            request_retries: b.txretries,
+            rtt: b.rtt.as_ref().map(to_latency_window),
+            throttle: b.throttle.as_ref().map(to_latency_window),
+            outbuf_cnt: b.outbuf_cnt,
+            waitresp_cnt: b.waitresp_cnt,
+            connects: b.connects,
+            disconnects: b.disconnects,
+        })
+        .collect();
+
+    metrics.sort_by_key(|m| m.node_id);
+
+    if metrics.is_empty() {
+        None
+    } else {
+        Some(metrics)
+    }
+}
+
 /// Build full cluster insights: brokers, topics, partitions, lag, throughput, recommendations.
 pub fn build_cluster_insights(
-    consumer: &BaseConsumer,
+    consumer: &AdminConsumer,
     all_stats: Vec<crate::models::TopicStats>,
+    kafka_stats: &SharedKafkaStats,
 ) -> Result<ClusterInsightsResponse, rdkafka::error::KafkaError> {
     let metadata = consumer.fetch_metadata(None, Duration::from_secs(10))?;
 
@@ -212,6 +292,9 @@ pub fn build_cluster_insights(
         });
     }
 
+    // Broker metrics from rdkafka statistics
+    let broker_metrics = extract_broker_metrics(kafka_stats);
+
     Ok(ClusterInsightsResponse {
         brokers,
         cluster_id: None,
@@ -220,5 +303,6 @@ pub fn build_cluster_insights(
         consumer_lag,
         topic_throughput,
         recommendations,
+        broker_metrics,
     })
 }

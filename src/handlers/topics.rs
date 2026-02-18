@@ -1,4 +1,5 @@
 use crate::kafka::admin;
+use crate::kafka::admin::AdminConsumer;
 use crate::models::{
     AlertStatus, AvailableTopicsResponse, TopicSummary, TopicToggleRequest, TopicsResponse,
 };
@@ -7,14 +8,13 @@ use crate::tracker::alerts::AlertEngine;
 use crate::tracker::stats::StatsEngine;
 use crate::TopicManager;
 use actix_web::{web, HttpResponse};
-use rdkafka::consumer::BaseConsumer;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
 /// GET /api/topics — list all topics with summary stats and alert status.
 pub async fn get_topics(
-    admin_consumer: web::Data<Arc<Mutex<BaseConsumer>>>,
+    admin_consumer: web::Data<Arc<Mutex<AdminConsumer>>>,
     stats_engine: web::Data<StatsEngine>,
     alert_engine: web::Data<AlertEngine>,
 ) -> HttpResponse {
@@ -65,7 +65,7 @@ pub async fn get_topics(
 
 /// GET /api/topics/available — list all Kafka topics + currently tracked ones.
 pub async fn get_available_topics(
-    admin_consumer: web::Data<Arc<Mutex<BaseConsumer>>>,
+    admin_consumer: web::Data<Arc<Mutex<AdminConsumer>>>,
     tracked_topics: web::Data<Arc<RwLock<HashSet<String>>>>,
 ) -> HttpResponse {
     let consumer = admin_consumer.get_ref().clone();

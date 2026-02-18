@@ -32,10 +32,10 @@ src/
 ├── main.rs              — Server bootstrap, TopicManager (with StartPosition support), AppState, SharedMongoStore, MongoDB init, routes, 4 background tasks, TopicManager in app_data
 ├── config.rs            — Args (clap) + AppConfig (env var fallback), --mongo-uri / MONGO_URI
 ├── error.rs             — TrackerError (thiserror) with actix ResponseError impl
-├── models.rs            — MessageSizeEvent, TopicStats, Alert, AlertConfig, HistoryDataPoint, WsMessage, CapturedMessage, HistoricalMessage, BrowseMessagesResponse, TopicSnapshot, GlobalSnapshotResponse, TopicToggleRequest (with start_from), StartPosition enum, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, PartitionLag, TopicThroughput, ThroughputRecommendation, ClusterInsightsResponse, BrowseQueryParams, AlertDefaultsResponse, AlertDefaultsRequest
+├── models.rs            — MessageSizeEvent, TopicStats, Alert, AlertConfig, HistoryDataPoint, WsMessage, CapturedMessage, HistoricalMessage, BrowseMessagesResponse, TopicSnapshot, GlobalSnapshotResponse, TopicToggleRequest (with start_from), StartPosition enum, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, PartitionLag, TopicThroughput, ThroughputRecommendation, ClusterInsightsResponse (with broker_metrics), BrokerMetrics, LatencyWindow, BrowseQueryParams, AlertDefaultsResponse, AlertDefaultsRequest
 ├── mongo.rs             — MongoStore with two collections (oversized_messages + alerts), PersistedMessage/PersistedAlert models, persist + query methods
 ├── kafka/
-│   ├── admin.rs         — BaseConsumer for metadata (list_topics), discover_brokers(), fetch_consumer_lag(), build_cluster_insights()
+│   ├── admin.rs         — AdminConsumer (BaseConsumer<StatsContext>) for metadata (list_topics), discover_brokers(), fetch_consumer_lag(), build_cluster_insights(), extract_broker_metrics(); SharedKafkaStats for rdkafka statistics callback
 │   ├── consumer.rs      — StreamConsumer per topic, accepts StartPosition (latest/beginning/timestamp/offset), extracts payload.len() + captures raw bytes dynamically
 │   └── browser.rs       — Historical message browsing: seek by offset/timestamp, browse_from_beginning(), browse_latest(), short-lived BaseConsumer per request
 ├── tracker/
@@ -58,16 +58,17 @@ src/
 
 ### Key Patterns (from KafkaDashboard)
 - **TopicManager**: `Arc<RwLock<HashMap<String, TopicConsumer>>>` (TopicConsumer = tx + JoinHandle), lazy consumer spawn, subscribe() accepts StartPosition, re-creates consumer (abort + respawn) when non-None start_position is provided for existing topic
-- **SharedAdminConsumer**: `Arc<Mutex<BaseConsumer>>` with `web::block` for metadata ops
+- **SharedAdminConsumer**: `Arc<Mutex<AdminConsumer>>` with `web::block` for metadata ops; AdminConsumer = `BaseConsumer<StatsContext>` with `statistics.interval.ms=5000`
 - **SharedMongoStore**: `Option<Arc<MongoStore>>` — initialized if `--mongo-uri` is provided
 - **WebSocket**: `actix_ws::Message` + `tokio::select!` multiplexing (broadcast rx + client msgs + heartbeat)
 - **Feature flags**: `static-kafka` (cmake-build, default) / `dynamic-kafka` (dynamic-linking)
 
-### Background Tasks (4)
+### Background Tasks (5)
 1. **Stats broadcaster** (1s): reads all stats -> broadcasts WsMessage::StatsUpdate
 2. **Minute aggregator** (60s): snapshots stats -> appends to TimeSeriesStorage
 3. **Topic auto-discovery** (30s): lists topics from admin consumer -> subscribes new ones
 4. **Lag collector** (10s): fetch_consumer_lag -> LagTimeSeries
+5. **Admin consumer poller** (1s): polls AdminConsumer for rdkafka statistics callbacks
 
 ### Data Flow
 ```
@@ -123,7 +124,7 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - **Topic names**: Status-based colors — red (critical), yellow (warning), cyan (recovered), green (healthy/ok)
 - **Enhanced alerts**: Time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery**: Popover UI with click-to-connect
-- **Cluster insights**: Full-screen overlay with tables, lag bars (top panel), recommendation cards, auto-refresh every 5s while open (real-time consumer lag), lag time-series chart (per-topic + total, crosshair hover)
+- **Cluster insights**: Full-screen overlay with tables, lag bars (top panel), recommendation cards, auto-refresh every 5s while open (real-time consumer lag), lag time-series chart (per-topic + total, crosshair hover), broker performance metrics (per-broker cards with state/TX/RX/RTT/errors/throttle/retries/in-flight via rdkafka statistics callback)
 - **Health report**: Full-screen overlay with per-topic health cards, plain-English abnormality descriptions (threshold breaches, spike detection, p99 analysis, spread analysis, alert activity), alert summary table, auto-refresh every 5s, severity-sorted (critical first)
 - **History Browser**: Full-screen overlay with 3 tabs (messages browse + global snapshot + persisted data), message detail sidebar, pagination
 - **Historical play presets**: `?preset=beginning|1h|1d|latest` param for quick browsing
@@ -143,9 +144,9 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - **Endpoints**: `/api/persisted/messages`, `/api/persisted/alerts`, `/api/persisted/status`
 - **Docker**: mongo:7 container with volume in docker-compose.full.yml
 
-## Tests (79 total)
+## Tests (82 total)
 - `config::tests` (2): default values, args override
-- `models::tests` (26): WsMessage serialization, AlertSeverity serde, AlertConfigRequest deser, AlertStatus ser, HistoryDataPoint roundtrip, HistoricalMessage ser, BrowseMessagesResponse ser, GlobalSnapshotResponse ser, MessagePayload ser, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, ClusterInsightsResponse, BrowseQueryParams with preset, PartitionLag, TopicThroughput, AlertDefaultsResponse ser, AlertDefaultsRequest deser, StartPosition latest/beginning/timestamp/offset serde, TopicToggleRequest with/without start_from
+- `models::tests` (29): WsMessage serialization, AlertSeverity serde, AlertConfigRequest deser, AlertStatus ser, HistoryDataPoint roundtrip, HistoricalMessage ser, BrowseMessagesResponse ser, GlobalSnapshotResponse ser, MessagePayload ser, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, ClusterInsightsResponse, ClusterInsightsResponse with broker_metrics, BrokerMetrics ser, LatencyWindow ser, BrowseQueryParams with preset, PartitionLag, TopicThroughput, AlertDefaultsResponse ser, AlertDefaultsRequest deser, StartPosition latest/beginning/timestamp/offset serde, TopicToggleRequest with/without start_from
 - `handlers::history::tests` (1): parse_range
 - `kafka::browser::tests` (5): encode_payload_utf8, encode_payload_binary, encode_payload_truncation, encode_payload_no_truncation, uuid_simple_unique
 - `tracker::stats::tests` (13): empty stats, single event, running average, min/max, percentiles (symmetric), reservoir bounds, multi-topic, get_all, snapshot/reset, empty snapshot, clear, percentiles empty/single
