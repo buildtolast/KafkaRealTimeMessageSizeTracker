@@ -166,29 +166,33 @@ run_stop() {
     local stopped=0
 
     # Check for full-stack Docker (docker-compose.full.yml)
-    if docker compose -f docker-compose.full.yml ps --status running 2>/dev/null | grep -q "kafka-size-tracker"; then
+    local full_ps
+    full_ps=$(docker compose -f docker-compose.full.yml ps -q 2>/dev/null || true)
+    if [[ -n "$full_ps" ]]; then
         echo "Stopping full stack (Kafka + Tracker + Seed Producer + MongoDB)..."
         docker compose -f docker-compose.full.yml down
         stopped=1
     fi
 
     # Check for app-only Docker (docker-compose.yml)
-    if docker compose ps --status running 2>/dev/null | grep -q "kafka-size-tracker"; then
+    local app_ps
+    app_ps=$(docker compose ps -q 2>/dev/null || true)
+    if [[ -n "$app_ps" ]]; then
         echo "Stopping app-only Docker..."
         docker compose down
         stopped=1
     fi
 
-    # Check for cargo process (kafka-message-size-tracker binary)
-    local pids
-    pids=$(pgrep -f "kafka-message-size-tracker" 2>/dev/null || true)
-    if [[ -n "$pids" ]]; then
-        echo "Stopping cargo process (PID: ${pids})..."
-        kill $pids 2>/dev/null || true
-        # Wait briefly for graceful shutdown, then force if needed
+    # Check for cargo/binary process on the configured port
+    local port_pid
+    port_pid=$(lsof -ti :"${SERVER_PORT}" 2>/dev/null || true)
+    if [[ -n "$port_pid" ]]; then
+        echo "Stopping process on port ${SERVER_PORT} (PID: ${port_pid})..."
+        kill $port_pid 2>/dev/null || true
         sleep 2
+        # Force kill if still alive
         local remaining
-        remaining=$(pgrep -f "kafka-message-size-tracker" 2>/dev/null || true)
+        remaining=$(lsof -ti :"${SERVER_PORT}" 2>/dev/null || true)
         if [[ -n "$remaining" ]]; then
             echo "Force stopping remaining processes..."
             kill -9 $remaining 2>/dev/null || true
