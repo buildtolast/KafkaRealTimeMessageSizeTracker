@@ -1403,6 +1403,54 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   cursor: pointer; color: var(--cyan); font-size: 11px;
   margin-top: 6px; display: inline-block;
 }
+/* ── What's Happening Overlay ── */
+.happening-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.75);
+  z-index: 9000;
+  display: none; align-items: center; justify-content: center;
+}
+.happening-overlay.active { display: flex; }
+.happening-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 640px; max-width: 90vw; max-height: 80vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.happening-header {
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex; align-items: center; gap: 10px;
+  border-radius: 8px 8px 0 0; flex-shrink: 0;
+}
+.happening-header .title { color: var(--orange); font-weight: 600; font-size: 14px; }
+.happening-body { padding: 24px; overflow-y: auto; flex: 1; }
+.happening-narrative {
+  color: var(--text); font-size: 13px; line-height: 1.9; white-space: pre-wrap;
+}
+.happening-narrative .hl-topic { color: var(--cyan); font-weight: 600; }
+.happening-narrative .hl-size { color: var(--magenta); font-weight: 600; }
+.happening-narrative .hl-rate { color: var(--green); font-weight: 600; }
+.happening-narrative .hl-alert { color: var(--red); font-weight: 600; }
+.happening-narrative .hl-warn { color: var(--yellow); font-weight: 600; }
+.happening-narrative .hl-ok { color: var(--green); }
+.happening-timestamp {
+  color: var(--text-muted); font-size: 10px; margin-top: 16px;
+  padding-top: 12px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.happening-pulse {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green); margin-right: 6px;
+  animation: happening-blink 2s ease-in-out infinite;
+}
+@keyframes happening-blink {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--green); }
+  50% { opacity: 0.4; box-shadow: none; }
+}
 </style>
 </head>
 <body>
@@ -1469,6 +1517,7 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
     <button class="btn" id="btnInsights" style="color:var(--green);border-color:var(--green-dim)" onclick="openInsights()">[cluster_insights]</button>
     <button class="btn" id="btnHealth" style="color:var(--cyan);border-color:var(--cyan)" onclick="openHealthReport()">[health_report]</button>
     <button class="btn" id="btnProgress" style="color:var(--green);border-color:var(--green)" onclick="openConsumerProgress()">[consumer_progress]</button>
+    <button class="btn" id="btnHappening" style="color:var(--orange);border-color:var(--orange)" onclick="openWhatsHappening()">[whats_happening]</button>
   </div>
 
   <!-- Main Content -->
@@ -1893,6 +1942,25 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   </div>
 </div>
 
+<!-- What's Happening Overlay -->
+<div class="happening-overlay" id="happeningOverlay" onclick="if(event.target===this)closeWhatsHappening()">
+  <div class="happening-card">
+    <div class="happening-header">
+      <span class="prompt">&gt;</span>
+      <span class="title">whats_happening</span>
+      <div style="flex:1"></div>
+      <button class="btn" onclick="refreshWhatsHappening()" style="font-size:11px">[refresh]</button>
+      <button class="btn" onclick="closeWhatsHappening()" style="font-size:11px">[close]</button>
+    </div>
+    <div class="happening-body" id="happeningBody">
+      <div class="happening-narrative" id="happeningNarrative">
+        <span style="color:var(--text-dim)">analyzing system activity...</span>
+      </div>
+      <div class="happening-timestamp" id="happeningTimestamp"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ═══════════════════════════════════════════════════════════════════
    APPLICATION STATE & LOGIC
@@ -2088,7 +2156,7 @@ function updateConnStatus(connected) {
 function updateBrokerButtons() {
   const connectBtn = document.getElementById('brokerBtn');
   const disconnectBtn = document.getElementById('brokerDisconnectBtn');
-  const actionBtns = ['btnTopics', 'btnBrowser', 'btnInsights', 'btnHealth', 'btnProgress'];
+  const actionBtns = ['btnTopics', 'btnBrowser', 'btnInsights', 'btnHealth', 'btnProgress', 'btnHappening'];
 
   if (state.connected) {
     connectBtn.style.display = 'none';
@@ -2113,6 +2181,7 @@ function updateBrokerButtons() {
     closeHealthReport();
     closeBrowser();
     closeConsumerProgress();
+    closeWhatsHappening();
   }
 }
 
@@ -2155,6 +2224,8 @@ function handleStatsUpdate(stats) {
   // Only add topics that are being tracked (ignore unmonitored topics)
   const tracked = getTrackedTopics();
   if (tracked.length > 0 && !tracked.includes(stats.topic)) return;
+
+  bufferStatsSnapshot(stats);
 
   // Update topic in list
   if (!state.topics.includes(stats.topic)) {
@@ -2483,6 +2554,7 @@ function resetDashboardState() {
   alertTimeseries.length = 0;
   feedBucket = { ts: 0, totalSize: 0, count: 0 };
   alertBucket = { ts: 0, warnings: 0, criticals: 0 };
+  happeningStatsBuffer.length = 0;
   document.getElementById('statusTopics').textContent = '0';
   document.getElementById('statusAlerts').textContent = '0';
   document.getElementById('statusEvents').textContent = '0';
@@ -4357,6 +4429,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeBrowser();
     closeInsights();
+    closeWhatsHappening();
   }
 });
 
@@ -5359,6 +5432,180 @@ function renderProgressChart() {
     ctx.fillText(topic, legendX + 14, legendY);
     legendX += ctx.measureText(topic).width + 30;
   });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   WHAT'S HAPPENING
+   ═══════════════════════════════════════════════════════════════════ */
+
+const happeningStatsBuffer = [];
+const HAPPENING_WINDOW_MS = 30000;
+const HAPPENING_REFRESH_MS = 5000;
+let happeningRefreshInterval = null;
+
+function bufferStatsSnapshot(stats) {
+  happeningStatsBuffer.push({
+    ts: Date.now(),
+    topic: stats.topic,
+    messages_per_sec: stats.messages_per_sec || 0,
+    bytes_per_sec: stats.bytes_per_sec || 0,
+    avg_bytes: stats.avg_bytes || 0,
+    max_bytes: stats.max_bytes || 0,
+    min_bytes: stats.min_bytes || 0,
+    p99: stats.p99 || 0,
+    message_count: stats.message_count || 0,
+  });
+  const cutoff = Date.now() - HAPPENING_WINDOW_MS;
+  while (happeningStatsBuffer.length > 0 && happeningStatsBuffer[0].ts < cutoff) {
+    happeningStatsBuffer.shift();
+  }
+}
+
+function openWhatsHappening() {
+  document.getElementById('happeningOverlay').classList.add('active');
+  renderWhatsHappening();
+  if (happeningRefreshInterval) clearInterval(happeningRefreshInterval);
+  happeningRefreshInterval = setInterval(renderWhatsHappening, HAPPENING_REFRESH_MS);
+}
+
+function closeWhatsHappening() {
+  document.getElementById('happeningOverlay').classList.remove('active');
+  if (happeningRefreshInterval) {
+    clearInterval(happeningRefreshInterval);
+    happeningRefreshInterval = null;
+  }
+}
+
+function refreshWhatsHappening() {
+  renderWhatsHappening();
+}
+
+function renderWhatsHappening() {
+  const now = Date.now();
+  const cutoff = now - HAPPENING_WINDOW_MS;
+
+  // Gather recent data
+  const recentSnapshots = happeningStatsBuffer.filter(s => s.ts >= cutoff);
+  const recentAlerts = state.alerts.filter(a => new Date(a.timestamp).getTime() >= cutoff);
+  const recentEvents = state.liveFeed.filter(e => new Date(e.timestamp).getTime() >= cutoff);
+
+  // Aggregate per-topic from snapshots
+  const topicAgg = {};
+  for (const s of recentSnapshots) {
+    if (!topicAgg[s.topic]) {
+      topicAgg[s.topic] = {
+        maxMsgPerSec: 0, maxBytesPerSec: 0, maxMaxBytes: 0, maxP99: 0,
+        latestMsgPerSec: 0, latestBytesPerSec: 0, latestAvgBytes: 0,
+        snapshots: [],
+      };
+    }
+    const a = topicAgg[s.topic];
+    a.snapshots.push(s);
+    if (s.messages_per_sec > a.maxMsgPerSec) a.maxMsgPerSec = s.messages_per_sec;
+    if (s.bytes_per_sec > a.maxBytesPerSec) a.maxBytesPerSec = s.bytes_per_sec;
+    if (s.max_bytes > a.maxMaxBytes) a.maxMaxBytes = s.max_bytes;
+    if (s.p99 > a.maxP99) a.maxP99 = s.p99;
+  }
+
+  const topics = Object.keys(topicAgg);
+  for (const t of topics) {
+    const last = topicAgg[t].snapshots[topicAgg[t].snapshots.length - 1];
+    topicAgg[t].latestMsgPerSec = last.messages_per_sec;
+    topicAgg[t].latestBytesPerSec = last.bytes_per_sec;
+    topicAgg[t].latestAvgBytes = last.avg_bytes;
+  }
+
+  // Build narrative
+  const lines = [];
+
+  // Line 1: Activity overview
+  if (topics.length === 0) {
+    lines.push('No topic data received yet. Waiting for messages...');
+  } else {
+    const totalMsgPerSec = topics.reduce((s, t) => s + topicAgg[t].latestMsgPerSec, 0);
+    const totalBytesPerSec = topics.reduce((s, t) => s + topicAgg[t].latestBytesPerSec, 0);
+    const eventCount = recentEvents.length;
+
+    let line = `Monitoring <span class="hl-rate">${topics.length}</span> topic${topics.length !== 1 ? 's' : ''}`;
+    line += ` at <span class="hl-rate">${formatRate(totalMsgPerSec)} msg/s</span>`;
+    line += ` (<span class="hl-size">${formatBytes(totalBytesPerSec)}/s</span>).`;
+    if (eventCount > 0) {
+      line += ` <span class="hl-rate">${eventCount.toLocaleString()}</span> event${eventCount !== 1 ? 's' : ''} observed in the last 30s.`;
+    }
+    lines.push(line);
+  }
+
+  // Line 2: Outliers
+  if (topics.length > 0) {
+    const parts = [];
+
+    // Busiest topic
+    const busiest = topics.reduce((best, t) =>
+      topicAgg[t].latestMsgPerSec > topicAgg[best].latestMsgPerSec ? t : best, topics[0]);
+    if (topicAgg[busiest].latestMsgPerSec > 0 && topics.length > 1) {
+      parts.push(`Busiest: <span class="hl-topic">${escapeHtml(busiest)}</span> at <span class="hl-rate">${formatRate(topicAgg[busiest].latestMsgPerSec)} msg/s</span>`);
+    }
+
+    // Largest message in window
+    let largestTopic = topics[0], largestSize = 0;
+    for (const t of topics) {
+      if (topicAgg[t].maxMaxBytes > largestSize) {
+        largestSize = topicAgg[t].maxMaxBytes;
+        largestTopic = t;
+      }
+    }
+    if (largestSize > 0) {
+      parts.push(`Largest message: <span class="hl-size">${formatBytes(largestSize)}</span> on <span class="hl-topic">${escapeHtml(largestTopic)}</span>`);
+    }
+
+    // Idle topics
+    const idle = topics.filter(t => topicAgg[t].latestMsgPerSec === 0);
+    if (idle.length > 0 && idle.length < topics.length) {
+      if (idle.length <= 2) {
+        parts.push(`Idle: <span class="hl-topic">${idle.map(escapeHtml).join(', ')}</span>`);
+      } else {
+        parts.push(`<span class="hl-topic">${idle.length}</span> topics idle`);
+      }
+    }
+
+    if (parts.length > 0) lines.push(parts.join('. ') + '.');
+  }
+
+  // Line 3: Alerts / Challenges
+  if (recentAlerts.length > 0) {
+    const criticals = recentAlerts.filter(a => a.severity === 'critical');
+    const warnings = recentAlerts.filter(a => a.severity !== 'critical');
+
+    let line = `<span class="hl-alert">${recentAlerts.length} alert${recentAlerts.length !== 1 ? 's' : ''}</span> in the last 30s`;
+    if (criticals.length > 0 && warnings.length > 0) {
+      line += ` (<span class="hl-alert">${criticals.length} critical</span>, <span class="hl-warn">${warnings.length} warning</span>)`;
+    } else if (criticals.length > 0) {
+      line += ` (<span class="hl-alert">${criticals.length} critical</span>)`;
+    } else {
+      line += ` (<span class="hl-warn">${warnings.length} warning</span>)`;
+    }
+    line += '.';
+
+    if (criticals.length > 0) {
+      const worst = criticals.reduce((m, a) => a.message_size > m.message_size ? a : m, criticals[0]);
+      line += ` Worst: <span class="hl-size">${formatBytes(worst.message_size)}</span> on <span class="hl-topic">${escapeHtml(worst.topic)}</span>.`;
+    }
+    lines.push(line);
+  } else if (topics.length > 0) {
+    lines.push('<span class="hl-ok">No alerts</span> \u2014 all messages within configured thresholds.');
+  }
+
+  // Render
+  const narrativeEl = document.getElementById('happeningNarrative');
+  const timestampEl = document.getElementById('happeningTimestamp');
+
+  if (lines.length === 0) {
+    narrativeEl.innerHTML = '<span style="color:var(--text-dim)">No activity to report. Connect to a broker and start monitoring topics.</span>';
+  } else {
+    narrativeEl.innerHTML = lines.join('\n\n');
+  }
+
+  timestampEl.innerHTML = `<span><span class="happening-pulse"></span>auto-refreshes every ${HAPPENING_REFRESH_MS / 1000}s</span><span>updated ${formatTime(now)}</span>`;
 }
 
 // Start
