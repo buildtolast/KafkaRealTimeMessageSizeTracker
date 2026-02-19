@@ -1995,6 +1995,7 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   <div class="insights-header">
     <span class="prompt">&gt;</span>
     <span class="title">cluster_insights</span>
+    <span id="insightsStatus" style="color:var(--text-muted);font-size:11px;margin-left:8px"></span>
     <div style="flex:1"></div>
     <button class="btn" onclick="refreshInsights()" style="font-size:11px">[refresh]</button>
     <button class="btn" onclick="closeInsights()" style="font-size:11px">[close]</button>
@@ -3862,17 +3863,19 @@ document.addEventListener('click', (e) => {
    ═══════════════════════════════════════════════════════════════════ */
 
 let insightsRefreshInterval = null;
+let insightsLoaded = false; // track if we have content on screen
 
 function openInsights() {
   document.getElementById('insightsOverlay').classList.add('active');
-  fetchInsights();
-  // Auto-refresh consumer lag every 15 seconds while overlay is open
+  insightsLoaded = false;
+  fetchInsights(true); // initial load with progress
   if (insightsRefreshInterval) clearInterval(insightsRefreshInterval);
-  insightsRefreshInterval = setInterval(fetchInsights, 15000);
+  insightsRefreshInterval = setInterval(() => fetchInsights(false), 15000);
 }
 
 function closeInsights() {
   document.getElementById('insightsOverlay').classList.remove('active');
+  insightsLoaded = false;
   if (insightsRefreshInterval) {
     clearInterval(insightsRefreshInterval);
     insightsRefreshInterval = null;
@@ -3880,20 +3883,81 @@ function closeInsights() {
 }
 
 function refreshInsights() {
-  fetchInsights();
+  fetchInsights(false);
 }
 
-async function fetchInsights() {
+function setInsightsStatus(text, color) {
+  const el = document.getElementById('insightsStatus');
+  if (el) { el.textContent = text; el.style.color = color || 'var(--text-muted)'; }
+}
+
+function showInsightsProgress(step, detail) {
   const body = document.getElementById('insightsBody');
-  body.innerHTML = '<div style="color:var(--text-dim);text-align:center;margin-top:60px">loading cluster insights...</div>';
+  const steps = [
+    { label: 'Connecting to cluster', est: '~1s' },
+    { label: 'Fetching broker metadata & consumer lag', est: '~2-5s' },
+    { label: 'Loading topic throughput & statistics', est: '~1s' },
+    { label: 'Building recommendations', est: '<1s' },
+    { label: 'Rendering lag history chart', est: '~1s' },
+  ];
+  const totalEst = '5-8s';
+  let html = '<div style="max-width:420px;margin:40px auto 0;text-align:left">';
+  html += '<div style="color:var(--cyan);font-size:13px;font-weight:600;margin-bottom:16px">Loading Cluster Insights</div>';
+  html += `<div style="color:var(--text-muted);font-size:11px;margin-bottom:14px">estimated total: ${totalEst}</div>`;
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    let icon, color;
+    if (i < step) { icon = '✓'; color = 'var(--green)'; }
+    else if (i === step) { icon = '⟳'; color = 'var(--yellow)'; }
+    else { icon = '○'; color = 'var(--text-dim)'; }
+    const estLabel = i === step ? ` — ${s.est}` : '';
+    html += `<div style="color:${color};font-size:12px;padding:4px 0;font-family:var(--font-mono,monospace)">`;
+    html += `  ${icon} ${s.label}${estLabel}`;
+    html += '</div>';
+  }
+  if (detail) {
+    html += `<div style="color:var(--text-muted);font-size:11px;margin-top:12px;font-style:italic">${escapeHtml(detail)}</div>`;
+  }
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+async function fetchInsights(isInitialLoad) {
+  const body = document.getElementById('insightsBody');
+  const startTime = performance.now();
+
+  if (isInitialLoad || !insightsLoaded) {
+    // Full-screen progress for initial load
+    showInsightsProgress(0, 'connecting to Kafka cluster...');
+  } else {
+    // Silent refresh — keep existing content, show status in header
+    setInsightsStatus('⟳ refreshing...', 'var(--yellow)');
+  }
 
   try {
+    if (isInitialLoad || !insightsLoaded) showInsightsProgress(1, 'querying brokers and consumer offsets...');
     const res = await fetch('/api/cluster/insights');
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
+
+    if (isInitialLoad || !insightsLoaded) showInsightsProgress(2, 'processing topic statistics...');
+    // Small yield so the UI can paint the progress step
+    await new Promise(r => setTimeout(r, 50));
+
+    if (isInitialLoad || !insightsLoaded) showInsightsProgress(3, 'analyzing cluster health...');
+    await new Promise(r => setTimeout(r, 50));
+
     renderInsights(data);
+    insightsLoaded = true;
+
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+    const ts = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setInsightsStatus(`updated ${ts} (${elapsed}s)`, 'var(--text-muted)');
   } catch (e) {
-    body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">error: ${escapeHtml(e.message)}</div>`;
+    if (isInitialLoad || !insightsLoaded) {
+      body.innerHTML = `<div style="color:var(--red);text-align:center;margin-top:60px">error: ${escapeHtml(e.message)}</div>`;
+    }
+    setInsightsStatus('⚠ refresh failed', 'var(--red)');
   }
 }
 
@@ -4038,7 +4102,13 @@ function renderInsights(data) {
   body.innerHTML = html;
 
   // Fetch and render lag time-series chart after DOM is ready
-  fetchAndRenderLagChart().then(() => setupLagChartHover());
+  fetchAndRenderLagChart().then(() => {
+    setupLagChartHover();
+    const ts = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setInsightsStatus(`ready — ${ts}`, 'var(--green)');
+    // Fade to muted after 3 seconds
+    setTimeout(() => setInsightsStatus(`updated ${ts}`, 'var(--text-muted)'), 3000);
+  });
 }
 
 const LAG_CHART_COLORS = ['#8be9fd', '#ff79c6', '#50fa7b', '#f1fa8c', '#ffb86c', '#ff5555', '#bd93f9', '#6272a4'];
