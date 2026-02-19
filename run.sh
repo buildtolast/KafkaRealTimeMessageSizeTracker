@@ -3,7 +3,7 @@
 # KafkaRealTimeMessageSizeTracker — run.sh
 # ============================================================================
 # Usage:
-#   ./run.sh                      # Run with defaults (localhost:9092, port 5000)
+#   ./run.sh                      # Run with defaults (localhost:9092, port 5688)
 #   ./run.sh --full                # Full stack: Kafka + Tracker + Seed Producer + MongoDB (Docker)
 #   ./run.sh --docker              # App-only Docker (connect to external Kafka)
 #   ./run.sh --confluent           # Connect to Confluent Cloud (set env vars below)
@@ -17,7 +17,7 @@ export KAFKA_BROKERS="${KAFKA_BROKERS:-localhost:9092}"
 
 # ── Server ───────────────────────────────────────────────────────────────────
 export SERVER_HOST="${SERVER_HOST:-127.0.0.1}"
-export SERVER_PORT="${SERVER_PORT:-5000}"
+export SERVER_PORT="${SERVER_PORT:-5688}"
 
 # ── Alert Thresholds ─────────────────────────────────────────────────────────
 export ALERT_THRESHOLD_BYTES="${ALERT_THRESHOLD_BYTES:-1048576}"         # 1 MB  (warning)
@@ -53,7 +53,7 @@ print_help() {
     echo "Environment Variables:"
     echo "  KAFKA_BROKERS              Kafka broker addresses       (default: localhost:9092)"
     echo "  SERVER_HOST                Server bind host             (default: 127.0.0.1)"
-    echo "  SERVER_PORT                Server bind port             (default: 5000)"
+    echo "  SERVER_PORT                Server bind port             (default: 5688)"
     echo "  ALERT_THRESHOLD_BYTES      Warning threshold in bytes   (default: 1048576 = 1MB)"
     echo "  CRITICAL_THRESHOLD_BYTES   Critical threshold in bytes  (default: 10485760 = 10MB)"
     echo "  CONSUMER_GROUP             Kafka consumer group prefix  (default: kafka-size-tracker)"
@@ -121,7 +121,7 @@ run_full_docker() {
     echo ""
     docker compose -f docker-compose.full.yml up -d
     echo ""
-    echo "Dashboard: http://localhost:5000"
+    echo "Dashboard: http://localhost:5688"
     echo "Kafka external: localhost:9094"
     echo ""
     echo "Logs:  docker compose -f docker-compose.full.yml logs -f tracker"
@@ -133,7 +133,7 @@ run_docker() {
     echo ""
     KAFKA_BROKERS="${KAFKA_BROKERS}" docker compose up -d
     echo ""
-    echo "Dashboard: http://localhost:5000"
+    echo "Dashboard: http://localhost:5688"
     echo ""
     echo "Logs:  docker compose logs -f"
     echo "Stop:  docker compose down"

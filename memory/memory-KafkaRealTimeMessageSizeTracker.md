@@ -8,14 +8,14 @@
 - **Binary name**: `kafka-message-size-tracker`
 
 ## Running
-- Dev: `cargo run -- --brokers localhost:9092 --port 5000`
+- Dev: `cargo run -- --brokers localhost:9092 --port 5688`
 - Full stack Docker: `docker compose -f docker-compose.full.yml up -d`
 - App-only Docker: `KAFKA_BROKERS=host:port docker compose up -d`
-- Dashboard URL: http://localhost:5000, Kafka external: localhost:9094
+- Dashboard URL: http://localhost:5688, Kafka external: localhost:9094
 
 ## CLI Arguments (clap)
 - `--brokers` (default: localhost:9092) — Kafka broker addresses
-- `--port` (default: 5000) — Server port
+- `--port` (default: 5688) — Server port
 - `--host` (default: 127.0.0.1) — Server host
 - `--threshold` (default: 1048576 = 1MB) — Warning alert threshold
 - `--critical-threshold` (default: 10485760 = 10MB) — Critical alert threshold

@@ -18,7 +18,7 @@ pub struct Args {
     pub brokers: String,
 
     /// Server port
-    #[arg(long, default_value = "5000")]
+    #[arg(long, default_value = "5688")]
     pub port: u16,
 
     /// Server host
@@ -133,7 +133,7 @@ mod tests {
     fn test_default_config_values() {
         let args = Args {
             brokers: "localhost:9092".into(),
-            port: 5000,
+            port: 5688,
             host: "127.0.0.1".into(),
             threshold: 1048576,
             critical_threshold: 10485760,
@@ -145,7 +145,7 @@ mod tests {
         };
         let config = AppConfig::from_args_and_env(args);
         assert_eq!(config.kafka_brokers, "localhost:9092");
-        assert_eq!(config.server_port, 5000);
+        assert_eq!(config.server_port, 5688);
         assert_eq!(config.server_host, "127.0.0.1");
         assert_eq!(config.default_warning_threshold, 1048576);
         assert_eq!(config.default_critical_threshold, 10485760);
@@ -199,7 +199,7 @@ mod tests {
     fn test_security_config_from_args() {
         let args = Args {
             brokers: "confluent:9092".into(),
-            port: 5000,
+            port: 5688,
             host: "127.0.0.1".into(),
             threshold: 1048576,
             critical_threshold: 10485760,
