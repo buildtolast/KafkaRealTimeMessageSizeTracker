@@ -10,8 +10,9 @@
 
 set -e
 
-KAFKA_BROKER="${KAFKA_BROKER:-kafka:9092}"
+KAFKA_BROKER="${KAFKA_BROKER:-kafka-1:9092}"
 KAFKA_BIN="/opt/kafka/bin"
+REPLICATION_FACTOR="${REPLICATION_FACTOR:-3}"
 
 echo "[seed] Waiting for Kafka at $KAFKA_BROKER..."
 until $KAFKA_BIN/kafka-topics.sh --bootstrap-server "$KAFKA_BROKER" --list > /dev/null 2>&1; do
@@ -23,7 +24,7 @@ echo "[seed] Kafka is ready!"
 # Create topics
 for topic in orders users logs metrics; do
   $KAFKA_BIN/kafka-topics.sh --bootstrap-server "$KAFKA_BROKER" \
-    --create --topic "$topic" --partitions 3 --replication-factor 1 --if-not-exists 2>/dev/null || true
+    --create --topic "$topic" --partitions 3 --replication-factor "$REPLICATION_FACTOR" --if-not-exists 2>/dev/null || true
   echo "[seed] Topic '$topic' ready"
 done
 
