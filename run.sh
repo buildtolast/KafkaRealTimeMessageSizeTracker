@@ -7,6 +7,7 @@
 #   ./run.sh --full                # Full stack: Kafka + Tracker + Seed Producer + MongoDB (Docker)
 #   ./run.sh --docker              # App-only Docker (connect to external Kafka)
 #   ./run.sh --confluent           # Connect to Confluent Cloud (set env vars below)
+#   ./run.sh --stop                # Stop whatever was started (auto-detects mode)
 #   ./run.sh --help                # Show this help
 # ============================================================================
 
@@ -48,6 +49,7 @@ print_help() {
     echo "  ./run.sh --full         Full stack Docker: Kafka + App + Seed + MongoDB"
     echo "  ./run.sh --docker       App-only Docker (set KAFKA_BROKERS env var)"
     echo "  ./run.sh --confluent    Connect to Confluent Cloud (prompts for credentials)"
+    echo "  ./run.sh --stop         Stop whatever was started (auto-detects mode)"
     echo "  ./run.sh --help         Show this help"
     echo ""
     echo "Environment Variables:"
@@ -125,7 +127,7 @@ run_full_docker() {
     echo "Kafka external: localhost:9094"
     echo ""
     echo "Logs:  docker compose -f docker-compose.full.yml logs -f tracker"
-    echo "Stop:  docker compose -f docker-compose.full.yml down"
+    echo "Stop:  ./run.sh --stop"
 }
 
 run_docker() {
@@ -136,7 +138,7 @@ run_docker() {
     echo "Dashboard: http://localhost:5688"
     echo ""
     echo "Logs:  docker compose logs -f"
-    echo "Stop:  docker compose down"
+    echo "Stop:  ./run.sh --stop"
 }
 
 run_confluent() {
@@ -160,6 +162,48 @@ run_confluent() {
     run_cargo
 }
 
+run_stop() {
+    local stopped=0
+
+    # Check for full-stack Docker (docker-compose.full.yml)
+    if docker compose -f docker-compose.full.yml ps --status running 2>/dev/null | grep -q "kafka-size-tracker"; then
+        echo "Stopping full stack (Kafka + Tracker + Seed Producer + MongoDB)..."
+        docker compose -f docker-compose.full.yml down
+        stopped=1
+    fi
+
+    # Check for app-only Docker (docker-compose.yml)
+    if docker compose ps --status running 2>/dev/null | grep -q "kafka-size-tracker"; then
+        echo "Stopping app-only Docker..."
+        docker compose down
+        stopped=1
+    fi
+
+    # Check for cargo process (kafka-message-size-tracker binary)
+    local pids
+    pids=$(pgrep -f "kafka-message-size-tracker" 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+        echo "Stopping cargo process (PID: ${pids})..."
+        kill $pids 2>/dev/null || true
+        # Wait briefly for graceful shutdown, then force if needed
+        sleep 2
+        local remaining
+        remaining=$(pgrep -f "kafka-message-size-tracker" 2>/dev/null || true)
+        if [[ -n "$remaining" ]]; then
+            echo "Force stopping remaining processes..."
+            kill -9 $remaining 2>/dev/null || true
+        fi
+        stopped=1
+    fi
+
+    if [[ $stopped -eq 0 ]]; then
+        echo "No running instances found."
+    else
+        echo ""
+        echo "Stopped."
+    fi
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 case "${1:-}" in
@@ -171,6 +215,9 @@ case "${1:-}" in
         ;;
     --confluent)
         run_confluent
+        ;;
+    --stop)
+        run_stop
         ;;
     --help|-h)
         print_help
