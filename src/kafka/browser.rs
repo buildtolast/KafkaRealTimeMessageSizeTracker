@@ -79,7 +79,7 @@ pub fn browse_by_offset(
                 messages.push(convert_message(&msg, topic));
             }
             Some(Err(e)) => {
-                log::warn!("Poll error browsing {}: {}", topic, e);
+                tracing::warn!("Poll error browsing {}: {}", topic, e);
                 break;
             }
             None => break,
@@ -194,7 +194,7 @@ pub fn browse_by_timestamp(
                 messages.push(convert_message(&msg, topic));
             }
             Some(Err(e)) => {
-                log::warn!("Poll error browsing {}: {}", topic, e);
+                tracing::warn!("Poll error browsing {}: {}", topic, e);
                 break;
             }
             None => break,
@@ -279,7 +279,7 @@ pub fn browse_from_beginning(
                 messages.push(convert_message(&msg, topic));
             }
             Some(Err(e)) => {
-                log::warn!("Poll error browsing {} from beginning: {}", topic, e);
+                tracing::warn!("Poll error browsing {} from beginning: {}", topic, e);
                 break;
             }
             None => break,
@@ -370,7 +370,7 @@ pub fn browse_latest(
                 messages.push(convert_message(&msg, topic));
             }
             Some(Err(e)) => {
-                log::warn!("Poll error browsing {} latest: {}", topic, e);
+                tracing::warn!("Poll error browsing {} latest: {}", topic, e);
                 break;
             }
             None => break,

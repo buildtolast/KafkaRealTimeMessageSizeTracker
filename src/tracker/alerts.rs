@@ -143,7 +143,7 @@ impl AlertEngine {
     pub async fn set_defaults(&self, warning: usize, critical: usize) {
         *self.default_warning.write().await = warning;
         *self.default_critical.write().await = critical;
-        log::info!(
+        tracing::info!(
             "Global alert defaults updated: warning={}B, critical={}B",
             warning,
             critical

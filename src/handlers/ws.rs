@@ -73,7 +73,7 @@ async fn ws_session(
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        log::warn!("WebSocket client lagged, skipped {} messages", n);
+                        tracing::warn!("WebSocket client lagged, skipped {} messages", n);
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         break;
@@ -131,7 +131,7 @@ async fn ws_session(
             // Heartbeat ping
             _ = heartbeat_interval.tick() => {
                 if Instant::now().duration_since(last_heartbeat) > Duration::from_secs(30) {
-                    log::info!("WebSocket client timed out");
+                    tracing::info!("WebSocket client timed out");
                     break;
                 }
                 if session.ping(b"").await.is_err() {
@@ -142,5 +142,5 @@ async fn ws_session(
     }
 
     let _ = session.close(None).await;
-    log::debug!("WebSocket session closed");
+    tracing::debug!("WebSocket session closed");
 }

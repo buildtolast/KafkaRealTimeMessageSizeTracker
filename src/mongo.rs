@@ -61,7 +61,7 @@ impl MongoStore {
         messages.create_index(idx.clone()).await?;
         alerts.create_index(idx).await?;
 
-        log::info!("MongoDB connected: {}", uri);
+        tracing::info!("MongoDB connected: {}", uri);
 
         Ok(Self { messages, alerts })
     }

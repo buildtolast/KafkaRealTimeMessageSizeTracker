@@ -85,6 +85,11 @@ pub struct AppConfig {
     pub security: SecurityConfig,
 }
 
+/// Maximum allowed threshold value (1 TB)
+const MAX_THRESHOLD: usize = 1_099_511_627_776;
+/// Maximum broker string length
+const MAX_BROKER_LEN: usize = 4096;
+
 impl AppConfig {
     pub fn from_args_and_env(args: Args) -> Self {
         let security = SecurityConfig {
@@ -123,6 +128,153 @@ impl AppConfig {
             security,
         }
     }
+
+    /// Validate configuration at startup.
+    /// Returns Err with a descriptive message if any constraint is violated.
+    pub fn validate(&self) -> Result<(), String> {
+        // Broker address must not be empty
+        if self.kafka_brokers.trim().is_empty() {
+            return Err("kafka_brokers must not be empty".into());
+        }
+        if self.kafka_brokers.len() > MAX_BROKER_LEN {
+            return Err(format!(
+                "kafka_brokers too long ({} chars, max {})",
+                self.kafka_brokers.len(),
+                MAX_BROKER_LEN
+            ));
+        }
+
+        // Warning must be less than critical
+        if self.default_warning_threshold >= self.default_critical_threshold {
+            return Err(format!(
+                "warning_threshold ({}) must be less than critical_threshold ({})",
+                self.default_warning_threshold, self.default_critical_threshold
+            ));
+        }
+
+        // Thresholds must be in valid range
+        if self.default_warning_threshold == 0 {
+            return Err("warning_threshold must be greater than 0".into());
+        }
+        if self.default_critical_threshold > MAX_THRESHOLD {
+            return Err(format!(
+                "critical_threshold ({}) exceeds maximum ({})",
+                self.default_critical_threshold, MAX_THRESHOLD
+            ));
+        }
+
+        // Port must not be 0
+        if self.server_port == 0 {
+            return Err("server_port must not be 0".into());
+        }
+
+        // Validate security config if partially set
+        if let Some(ref protocol) = self.security.security_protocol {
+            let valid = ["SASL_SSL", "SASL_PLAINTEXT", "SSL"];
+            if !valid.contains(&protocol.as_str()) {
+                return Err(format!(
+                    "invalid security_protocol '{}' — must be one of: {}",
+                    protocol,
+                    valid.join(", ")
+                ));
+            }
+
+            // SASL protocols require mechanism + credentials
+            if protocol.starts_with("SASL") {
+                if self.security.sasl_mechanism.is_none() {
+                    return Err(format!(
+                        "sasl_mechanism is required when security_protocol is {}",
+                        protocol
+                    ));
+                }
+                if self.security.sasl_username.is_none() || self.security.sasl_password.is_none() {
+                    return Err(format!(
+                        "sasl_username and sasl_password are required when security_protocol is {}",
+                        protocol
+                    ));
+                }
+            }
+        }
+
+        if let Some(ref mechanism) = self.security.sasl_mechanism {
+            let valid = ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"];
+            if !valid.contains(&mechanism.as_str()) {
+                return Err(format!(
+                    "invalid sasl_mechanism '{}' — must be one of: {}",
+                    mechanism,
+                    valid.join(", ")
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Validate a broker address string (used by the set_broker API handler).
+pub fn validate_brokers(brokers: &str) -> Result<(), String> {
+    if brokers.trim().is_empty() {
+        return Err("brokers must not be empty".into());
+    }
+    if brokers.len() > MAX_BROKER_LEN {
+        return Err(format!(
+            "brokers too long ({} chars, max {})",
+            brokers.len(),
+            MAX_BROKER_LEN
+        ));
+    }
+    // Basic format check: should contain host:port pairs
+    for part in brokers.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            return Err("empty broker address in comma-separated list".into());
+        }
+        if !part.contains(':') {
+            return Err(format!(
+                "invalid broker address '{}' — expected host:port format",
+                part
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Validate alert threshold values.
+pub fn validate_thresholds(warning: usize, critical: usize) -> Result<(), String> {
+    if warning == 0 {
+        return Err("warning_threshold must be greater than 0".into());
+    }
+    if critical > MAX_THRESHOLD {
+        return Err(format!(
+            "critical_threshold ({}) exceeds maximum ({})",
+            critical, MAX_THRESHOLD
+        ));
+    }
+    if warning >= critical {
+        return Err("warning_threshold must be less than critical_threshold".into());
+    }
+    Ok(())
+}
+
+/// Validate a topic name.
+pub fn validate_topic_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 249 {
+        return Err(format!(
+            "topic name must be 1-249 characters (got {})",
+            name.len()
+        ));
+    }
+    // Kafka topic names: alphanumeric, dots, underscores, hyphens
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-')
+    {
+        return Err(format!(
+            "topic name '{}' contains invalid characters — only alphanumeric, '.', '_', '-' allowed",
+            name
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

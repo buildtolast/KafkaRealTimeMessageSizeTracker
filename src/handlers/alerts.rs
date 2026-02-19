@@ -1,6 +1,10 @@
+use crate::config;
 use crate::models::{AlertConfig, AlertConfigRequest, AlertDefaultsRequest, AlertDefaultsResponse};
 use crate::tracker::alerts::AlertEngine;
 use actix_web::{web, HttpResponse};
+
+/// Maximum limit for alert queries (prevent OOM from huge requests).
+const MAX_ALERT_LIMIT: usize = 10_000;
 
 /// GET /api/alerts?limit=100 — get recent alerts.
 pub async fn get_alerts(
@@ -10,7 +14,8 @@ pub async fn get_alerts(
     let limit: usize = query
         .get("limit")
         .and_then(|l| l.parse().ok())
-        .unwrap_or(100);
+        .unwrap_or(100)
+        .min(MAX_ALERT_LIMIT);
 
     let alerts = alert_engine.get_alerts(limit).await;
     HttpResponse::Ok().json(alerts)
@@ -28,12 +33,26 @@ pub async fn set_alert_config(
     alert_engine: web::Data<AlertEngine>,
 ) -> HttpResponse {
     let req = body.into_inner();
+
+    // Validate topic name
+    if let Err(e) = config::validate_topic_name(&req.topic) {
+        return HttpResponse::BadRequest().json(serde_json::json!({ "error": e }));
+    }
+
     let current = alert_engine.get_config(&req.topic).await;
+
+    let warning = req.warning_threshold.unwrap_or(current.warning_threshold);
+    let critical = req.critical_threshold.unwrap_or(current.critical_threshold);
+
+    // Validate thresholds
+    if let Err(e) = config::validate_thresholds(warning, critical) {
+        return HttpResponse::BadRequest().json(serde_json::json!({ "error": e }));
+    }
 
     let config = AlertConfig {
         topic: req.topic,
-        warning_threshold: req.warning_threshold.unwrap_or(current.warning_threshold),
-        critical_threshold: req.critical_threshold.unwrap_or(current.critical_threshold),
+        warning_threshold: warning,
+        critical_threshold: critical,
         enabled: req.enabled.unwrap_or(current.enabled),
     };
 
@@ -61,10 +80,8 @@ pub async fn set_alert_defaults(
     let warning = req.warning_threshold.unwrap_or(current_warning);
     let critical = req.critical_threshold.unwrap_or(current_critical);
 
-    if warning >= critical {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "warning_threshold must be less than critical_threshold"
-        }));
+    if let Err(e) = config::validate_thresholds(warning, critical) {
+        return HttpResponse::BadRequest().json(serde_json::json!({ "error": e }));
     }
 
     alert_engine.set_defaults(warning, critical).await;

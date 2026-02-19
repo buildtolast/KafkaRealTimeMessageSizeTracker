@@ -26,15 +26,16 @@
 - `--sasl-password` (optional) — SASL password / API Secret
 
 ## Environment Variable Overrides
-KAFKA_BROKERS, SERVER_HOST, SERVER_PORT, ALERT_THRESHOLD_BYTES, CRITICAL_THRESHOLD_BYTES, CONSUMER_GROUP, MONGO_URI, KAFKA_SECURITY_PROTOCOL, KAFKA_SASL_MECHANISM, KAFKA_SASL_USERNAME, KAFKA_SASL_PASSWORD, RUST_LOG
+KAFKA_BROKERS, SERVER_HOST, SERVER_PORT, ALERT_THRESHOLD_BYTES, CRITICAL_THRESHOLD_BYTES, CONSUMER_GROUP, MONGO_URI, KAFKA_SECURITY_PROTOCOL, KAFKA_SASL_MECHANISM, KAFKA_SASL_USERNAME, KAFKA_SASL_PASSWORD, RUST_LOG, LOG_FORMAT (set to "json" for structured JSON logging)
 
 ## Architecture
 
 ### Backend Modules
 ```
 src/
-├── main.rs              — Server bootstrap, TopicManager (with StartPosition support), AppState, SharedMongoStore, MongoDB init, routes, 4 background tasks, TopicManager in app_data
-├── config.rs            — Args (clap) + AppConfig (env var fallback), SecurityConfig (SASL/SSL auth), SharedSecurityConfig, --mongo-uri / MONGO_URI
+├── main.rs              — Server bootstrap, TopicManager (with StartPosition support), AppState, SharedMongoStore, MongoDB init, routes, 5 background tasks (all with CancellationToken), graceful shutdown (SIGINT → cancel token → stop consumers → exit), TopicManager in app_data
+├── lib.rs               — Library crate re-exports (config, error, models, mongo, storage, tracker) for integration tests
+├── config.rs            — Args (clap) + AppConfig (env var fallback + startup validate()), SecurityConfig (SASL/SSL auth), SharedSecurityConfig, input validation helpers (validate_brokers, validate_thresholds, validate_topic_name), --mongo-uri / MONGO_URI
 ├── error.rs             — TrackerError (thiserror) with actix ResponseError impl
 ├── models.rs            — MessageSizeEvent, TopicStats, Alert, AlertConfig, HistoryDataPoint, WsMessage, CapturedMessage, HistoricalMessage, BrowseMessagesResponse, TopicSnapshot, GlobalSnapshotResponse, TopicToggleRequest (with start_from), StartPosition enum, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, BrokerRequest (with auth fields), BrokerResponse (with auth_configured), PartitionLag, TopicThroughput, ThroughputRecommendation, ClusterInsightsResponse (with broker_metrics), BrokerMetrics, LatencyWindow, BrowseQueryParams, AlertDefaultsResponse, AlertDefaultsRequest, PartitionProgress, ConsumerProgress, ConsumerProgressResponse, ProgressDataPoint, TopicConsumed
 ├── mongo.rs             — MongoStore with two collections (oversized_messages + alerts), PersistedMessage/PersistedAlert models, persist + query methods
@@ -72,12 +73,29 @@ src/
 - **WebSocket**: `actix_ws::Message` + `tokio::select!` multiplexing (broadcast rx + client msgs + heartbeat)
 - **Feature flags**: `static-kafka` (cmake-build + ssl, default) / `dynamic-kafka` (dynamic-linking + ssl)
 
-### Background Tasks (5)
+### Background Tasks (5, all with CancellationToken for graceful shutdown)
 1. **Stats broadcaster** (1s): reads all stats -> broadcasts WsMessage::StatsUpdate
 2. **Minute aggregator** (60s): snapshots stats -> appends to TimeSeriesStorage
 3. **Topic auto-discovery** (60s): lists topics from admin consumer -> subscribes new ones
 4. **Lag collector** (30s): fetch_consumer_lag_for_topics (scoped to tracked) -> LagTimeSeries + ProgressTracker.snapshot() (caches watermarks)
 5. **Admin consumer poller** (1s): polls AdminConsumer for rdkafka statistics callbacks
+
+### Graceful Shutdown
+- SIGINT → `CancellationToken::cancel()` → all 5 background tasks exit via `tokio::select!` → TopicManager.clear() stops all consumers → server stops
+- Uses `tokio_util::sync::CancellationToken`
+
+### Input Validation
+- `AppConfig::validate()` at startup: brokers non-empty, warning < critical, thresholds in 1..1TB, port != 0, valid security protocol, SASL requires mechanism + credentials
+- `validate_brokers()`: non-empty, max 4096 chars, each part matches host:port
+- `validate_thresholds()`: warning > 0, critical < 1TB, warning < critical
+- `validate_topic_name()`: 1-249 chars, only `[a-zA-Z0-9._-]`
+- All API endpoints validate inputs before processing
+
+### Structured Logging
+- `tracing` + `tracing-subscriber` with `EnvFilter` (via `RUST_LOG`)
+- JSON output via `LOG_FORMAT=json` env var
+- `tracing-actix-web::TracingLogger` for HTTP request logging
+- Keeps `log` crate for rdkafka compatibility (tracing-log bridge)
 
 ### Data Flow
 ```
@@ -146,7 +164,7 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - **Topic names**: Status-based colors — red (critical), yellow (warning), cyan (recovered), green (healthy/ok)
 - **Enhanced alerts**: Time window filter (5m/15m/1h/all), shows all topics
 - **Broker discovery**: Popover UI with click-to-connect
-- **Cluster insights**: Full-screen overlay with tables, lag bars (top panel), recommendation cards, auto-refresh every 5s while open (real-time consumer lag), lag time-series chart (per-topic + total, crosshair hover), broker performance metrics (per-broker cards with state/TX/RX/RTT/errors/throttle/retries/in-flight via rdkafka statistics callback)
+- **Cluster insights**: Full-screen overlay with tables, lag bars (top panel), recommendation cards, auto-refresh every 15s while open (silent in-place refresh, no screen wipe), lag time-series chart (per-topic + total, crosshair hover), broker performance metrics (per-broker cards with state/TX/RX/RTT/errors/throttle/retries/in-flight via rdkafka statistics callback), step-by-step loading progress with per-step ETA on initial load, header status indicator (refresh state + elapsed time + last updated timestamp)
 - **Health report**: Full-screen overlay with per-topic health cards, plain-English abnormality descriptions (threshold breaches, spike detection, p99 analysis, spread analysis, alert activity), grouped alert summary + individual alert messages table (most recent 20 with download links), auto-refresh every 5s (live) or 30s (historical), severity-sorted (critical first), time-window selection (live/1h/6h/24h/7d) for historical analysis using per-minute aggregate data
 - **Consumer progress**: Full-screen overlay showing per-topic consumer progress with visual progress bars (color-coded: red→yellow→cyan→green), per-partition detail tables, offset tracking (first/current/log-end), time-series chart of consumption over time, auto-refresh every 5s
 - **History Browser**: Full-screen overlay with 3 tabs (messages browse + global snapshot + persisted data), message detail sidebar, pagination
@@ -169,7 +187,9 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - **Endpoints**: `/api/persisted/messages`, `/api/persisted/alerts`, `/api/persisted/status`
 - **Docker**: mongo:7 container with volume in docker-compose.full.yml
 
-## Tests (97 total)
+## Tests (127 total: 97 unit + 30 integration)
+
+### Unit Tests (97)
 - `config::tests` (6): default values, args override, security_config_not_configured, security_config_configured, security_config_from_args, security_config_serde_roundtrip
 - `models::tests` (32): WsMessage serialization, AlertSeverity serde, AlertConfigRequest deser, AlertStatus ser, HistoryDataPoint roundtrip, HistoricalMessage ser, BrowseMessagesResponse ser, GlobalSnapshotResponse ser, MessagePayload ser, TopicToggleRequest, AvailableTopicsResponse, BrokerInfo, BrokerDiscoveryResponse, ClusterInsightsResponse, ClusterInsightsResponse with broker_metrics, BrokerMetrics ser, LatencyWindow ser, BrowseQueryParams with preset, PartitionLag, TopicThroughput, AlertDefaultsResponse ser, AlertDefaultsRequest deser, StartPosition latest/beginning/timestamp/offset serde, TopicToggleRequest with/without start_from, PartitionProgress roundtrip, ConsumerProgressResponse ser, ProgressDataPoint ser
 - `handlers::history::tests` (1): parse_range
@@ -179,6 +199,16 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - `tracker::progress::tests` (8): record_offset_basic, record_offset_multiple_partitions, record_offset_multiple_topics, get_progress_with_watermarks, get_progress_caught_up, snapshot_appends_timeseries, snapshot_empty_state_does_not_append, clear_resets_everything
 - `storage::tests` (14): append/query, range filtering, circular eviction, empty topic, multi-topic, get_topics, clear, snapshot_at_exact_match, snapshot_at_finds_closest, snapshot_at_multiple_topics, snapshot_at_no_data, lag_timeseries_append_and_get, lag_timeseries_eviction, lag_timeseries_clear
 - `mongo::tests` (4): PersistedMessage ser/deser, PersistedAlert ser/deser
+
+### Integration Tests (30, in tests/integration_tests.rs)
+- Config validation (8): valid config, empty brokers, warning >= critical, zero warning, zero port, SASL without credentials, invalid protocol, valid SASL
+- Input validation helpers (10): valid/empty/no-port brokers, valid/empty/invalid-chars topic names, valid/invalid/zero thresholds
+- Full message flow (4): stats + alert trigger, no alert under threshold, critical with capture storage, multi-topic stats independence
+- Consumer progress (2): multi-partition flow with watermarks, clear resets
+- Time-series storage (2): snapshot + query flow, multi-topic isolation
+- Alert reconfiguration (2): runtime threshold change, global defaults affect new topics
+- End-to-end pipeline (1): 200 messages across 2 topics with stats + alerts + progress + storage + clear
+- MongoDB models (2): PersistedMessage and PersistedAlert serialization roundtrip
 
 ## Docker
 - **Dockerfile**: 2-stage (rust:1.88-bookworm -> debian:bookworm-slim)
@@ -192,4 +222,4 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - **scripts/seed-sizes.sh**: 4 topics (orders/users/logs/metrics), piped stdin approach, alert simulation every 10th/15th/25th iteration (1.2MB/12MB/2MB), dynamic REPLICATION_FACTOR env var
 
 ## Dependencies
-actix-web 4, actix-ws 0.3, actix-rt 2, actix-cors 0.7, rdkafka 0.37, mongodb 3, sysinfo 0.33, tokio 1, serde 1, serde_json 1, chrono 0.4, env_logger 0.11, log 0.4, clap 4, thiserror 2, rand 0.8, futures-util 0.3, base64 0.22
+actix-web 4, actix-ws 0.3, actix-rt 2, actix-cors 0.7, rdkafka 0.37, mongodb 3, sysinfo 0.33, tokio 1, tokio-util 0.7, serde 1, serde_json 1, chrono 0.4, log 0.4, clap 4, thiserror 2, rand 0.8, futures-util 0.3, base64 0.22, tracing 0.1, tracing-subscriber 0.3 (env-filter + json), tracing-actix-web 0.7

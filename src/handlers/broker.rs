@@ -1,4 +1,4 @@
-use crate::config::{SecurityConfig, SharedSecurityConfig};
+use crate::config::{self, SecurityConfig, SharedSecurityConfig};
 use crate::kafka::admin;
 use crate::kafka::admin::{AdminConsumer, SharedKafkaStats};
 use crate::models::{BrokerRequest, BrokerResponse, LagHistoryResponse};
@@ -33,6 +33,11 @@ pub async fn set_broker(
     let req = body.into_inner();
     let new_brokers = req.brokers;
 
+    // Validate broker address
+    if let Err(e) = config::validate_brokers(&new_brokers) {
+        return HttpResponse::BadRequest().json(serde_json::json!({ "error": e }));
+    }
+
     // Build updated security config from request
     let new_security = SecurityConfig {
         security_protocol: req.security_protocol,
@@ -60,7 +65,7 @@ pub async fn set_broker(
             let protocol = sec_lock.security_protocol.clone();
             drop(sec_lock);
 
-            log::info!("Broker updated to: {} (auth={})", new_brokers, auth_configured);
+            tracing::info!(brokers = %new_brokers, auth = auth_configured, "Broker updated");
             HttpResponse::Ok().json(BrokerResponse {
                 brokers: new_brokers,
                 auth_configured,

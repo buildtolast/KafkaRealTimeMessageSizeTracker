@@ -48,7 +48,7 @@ pub async fn run_size_tracking_consumer(
     let consumer: StreamConsumer = match config.create() {
         Ok(c) => c,
         Err(e) => {
-            log::error!("Failed to create consumer for topic {}: {}", topic, e);
+            tracing::error!("Failed to create consumer for topic {}: {}", topic, e);
             return;
         }
     };
@@ -61,7 +61,7 @@ pub async fn run_size_tracking_consumer(
             let metadata = match consumer.fetch_metadata(Some(&topic), Duration::from_secs(10)) {
                 Ok(m) => m,
                 Err(e) => {
-                    log::error!("Failed to fetch metadata for topic {}: {}", topic, e);
+                    tracing::error!("Failed to fetch metadata for topic {}: {}", topic, e);
                     return;
                 }
             };
@@ -73,7 +73,7 @@ pub async fn run_size_tracking_consumer(
                 .unwrap_or(0);
 
             if partition_count == 0 {
-                log::warn!("No partitions found for topic {}", topic);
+                tracing::warn!("No partitions found for topic {}", topic);
                 return;
             }
 
@@ -82,16 +82,16 @@ pub async fn run_size_tracking_consumer(
                 let _ = tpl.add_partition_offset(&topic, p, Offset::Beginning);
             }
             if let Err(e) = consumer.assign(&tpl) {
-                log::error!("Failed to assign partitions for topic {}: {}", topic, e);
+                tracing::error!("Failed to assign partitions for topic {}: {}", topic, e);
                 return;
             }
-            log::info!("Started size-tracking consumer for topic: {} (from beginning, {} partitions)", topic, partition_count);
+            tracing::info!("Started size-tracking consumer for topic: {} (from beginning, {} partitions)", topic, partition_count);
         }
         Some(StartPosition::Timestamp { value }) => {
             let ts = match value.parse::<DateTime<Utc>>() {
                 Ok(dt) => dt,
                 Err(e) => {
-                    log::error!("Invalid timestamp '{}' for topic {}: {}", value, topic, e);
+                    tracing::error!("Invalid timestamp '{}' for topic {}: {}", value, topic, e);
                     return;
                 }
             };
@@ -100,7 +100,7 @@ pub async fn run_size_tracking_consumer(
             let metadata = match consumer.fetch_metadata(Some(&topic), Duration::from_secs(10)) {
                 Ok(m) => m,
                 Err(e) => {
-                    log::error!("Failed to fetch metadata for topic {}: {}", topic, e);
+                    tracing::error!("Failed to fetch metadata for topic {}: {}", topic, e);
                     return;
                 }
             };
@@ -112,7 +112,7 @@ pub async fn run_size_tracking_consumer(
                 .unwrap_or(0);
 
             if partition_count == 0 {
-                log::warn!("No partitions found for topic {}", topic);
+                tracing::warn!("No partitions found for topic {}", topic);
                 return;
             }
 
@@ -120,7 +120,7 @@ pub async fn run_size_tracking_consumer(
             let mut tpl = TopicPartitionList::new();
             for p in 0..partition_count {
                 if let Err(e) = tpl.add_partition_offset(&topic, p, Offset::Offset(ts_millis)) {
-                    log::error!("Failed to set timestamp offset for topic {}: {}", topic, e);
+                    tracing::error!("Failed to set timestamp offset for topic {}: {}", topic, e);
                     return;
                 }
             }
@@ -128,7 +128,7 @@ pub async fn run_size_tracking_consumer(
             let resolved = match consumer.offsets_for_times(tpl, Duration::from_secs(10)) {
                 Ok(r) => r,
                 Err(e) => {
-                    log::error!("Failed to resolve timestamps for topic {}: {}", topic, e);
+                    tracing::error!("Failed to resolve timestamps for topic {}: {}", topic, e);
                     return;
                 }
             };
@@ -148,30 +148,30 @@ pub async fn run_size_tracking_consumer(
             }
 
             if let Err(e) = consumer.assign(&assign_tpl) {
-                log::error!("Failed to assign partitions for topic {}: {}", topic, e);
+                tracing::error!("Failed to assign partitions for topic {}: {}", topic, e);
                 return;
             }
-            log::info!("Started size-tracking consumer for topic: {} (from timestamp {})", topic, value);
+            tracing::info!("Started size-tracking consumer for topic: {} (from timestamp {})", topic, value);
         }
         Some(StartPosition::Offset { partition, offset }) => {
             let mut tpl = TopicPartitionList::new();
             if let Err(e) = tpl.add_partition_offset(&topic, *partition, Offset::Offset(*offset)) {
-                log::error!("Failed to set offset for topic {}: {}", topic, e);
+                tracing::error!("Failed to set offset for topic {}: {}", topic, e);
                 return;
             }
             if let Err(e) = consumer.assign(&tpl) {
-                log::error!("Failed to assign partition for topic {}: {}", topic, e);
+                tracing::error!("Failed to assign partition for topic {}: {}", topic, e);
                 return;
             }
-            log::info!("Started size-tracking consumer for topic: {} (from partition {} offset {})", topic, partition, offset);
+            tracing::info!("Started size-tracking consumer for topic: {} (from partition {} offset {})", topic, partition, offset);
         }
         _ => {
             // Latest / None — use subscribe() for normal consumer group behavior
             if let Err(e) = consumer.subscribe(&[&topic]) {
-                log::error!("Failed to subscribe to topic {}: {}", topic, e);
+                tracing::error!("Failed to subscribe to topic {}: {}", topic, e);
                 return;
             }
-            log::info!("Started size-tracking consumer for topic: {} (from latest)", topic);
+            tracing::info!("Started size-tracking consumer for topic: {} (from latest)", topic);
         }
     }
 
@@ -215,7 +215,7 @@ pub async fn run_size_tracking_consumer(
                 let _ = tx.send(event);
             }
             Err(e) => {
-                log::error!("Kafka recv error on topic {}: {}", topic, e);
+                tracing::error!("Kafka recv error on topic {}: {}", topic, e);
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }

@@ -1,12 +1,12 @@
-mod config;
-mod error;
+pub mod config;
+pub mod error;
 mod frontend;
 mod handlers;
-mod kafka;
-mod models;
-mod mongo;
-mod storage;
-mod tracker;
+pub mod kafka;
+pub mod models;
+pub mod mongo;
+pub mod storage;
+pub mod tracker;
 
 use crate::config::{AppConfig, Args, SharedSecurityConfig};
 use crate::kafka::admin;
@@ -18,12 +18,14 @@ use crate::tracker::alerts::AlertEngine;
 use crate::tracker::progress::ProgressTracker;
 use crate::tracker::stats::StatsEngine;
 use actix_cors::Cors;
-use actix_web::{middleware, web, App, HttpResponse, HttpServer};
+use actix_web::{web, App, HttpResponse, HttpServer};
 use clap::Parser;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+use tracing_actix_web::TracingLogger;
 
 /// Per-topic consumer state: broadcast channel + task handles for cleanup.
 struct TopicConsumer {
@@ -84,7 +86,7 @@ impl TopicManager {
                 return existing.tx.subscribe();
             }
             // Start position specified — abort old tasks and re-create below
-            log::info!("Re-creating consumer for topic {} with start position {:?}", topic, start_position);
+            tracing::info!("Re-creating consumer for topic {} with start position {:?}", topic, start_position);
         }
         if let Some(old) = consumers.remove(topic) {
             // Abort both tasks: processor + kafka consumer
@@ -183,7 +185,7 @@ impl TopicManager {
                                     let store = store.clone();
                                     tokio::spawn(async move {
                                         if let Err(e) = store.persist_message(persisted).await {
-                                            log::warn!("Failed to persist oversized message to MongoDB: {}", e);
+                                            tracing::warn!("Failed to persist oversized message to MongoDB: {}", e);
                                         }
                                     });
                                 }
@@ -202,7 +204,7 @@ impl TopicManager {
                                 let store = store.clone();
                                 tokio::spawn(async move {
                                     if let Err(e) = store.persist_alert(persisted).await {
-                                        log::warn!("Failed to persist alert to MongoDB: {}", e);
+                                        tracing::warn!("Failed to persist alert to MongoDB: {}", e);
                                     }
                                 });
                             }
@@ -215,7 +217,7 @@ impl TopicManager {
                         let _ = ws_tx.send(WsMessage::SizeEvent(event));
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        log::warn!(
+                        tracing::warn!(
                             "Event processor lagged, skipped {} events for topic {}",
                             n,
                             topic_owned
@@ -268,19 +270,47 @@ async fn main() -> std::io::Result<()> {
     let args = Args::parse();
     let config = AppConfig::from_args_and_env(args);
 
-    // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // Initialize structured logging with tracing
+    let json_logging = std::env::var("LOG_FORMAT").ok().map(|v| v == "json").unwrap_or(false);
+    if json_logging {
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+            )
+            .with_target(true)
+            .with_thread_ids(true)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+            )
+            .with_target(true)
+            .init();
+    }
 
-    log::info!(
-        "KafkaRealTimeMessageSizeTracker starting on {}:{}",
-        config.server_host,
-        config.server_port
+    // Validate config at startup
+    if let Err(e) = config.validate() {
+        tracing::error!("Configuration error: {}", e);
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e));
+    }
+
+    // Create cancellation token for graceful shutdown
+    let shutdown = CancellationToken::new();
+
+    tracing::info!(
+        host = %config.server_host,
+        port = config.server_port,
+        "KafkaRealTimeMessageSizeTracker starting"
     );
-    log::info!("Kafka brokers: {}", config.kafka_brokers);
-    log::info!(
-        "Alert thresholds: warning={}B, critical={}B",
-        config.default_warning_threshold,
-        config.default_critical_threshold
+    tracing::info!(brokers = %config.kafka_brokers, "Kafka brokers configured");
+    tracing::info!(
+        warning = config.default_warning_threshold,
+        critical = config.default_critical_threshold,
+        "Alert thresholds configured"
     );
 
     // Create shared state
@@ -288,17 +318,28 @@ async fn main() -> std::io::Result<()> {
         Arc::new(RwLock::new(config.security.clone()));
 
     if config.security.is_configured() {
-        log::info!(
-            "Kafka security: protocol={}, mechanism={}",
-            config.security.security_protocol.as_deref().unwrap_or("none"),
-            config.security.sasl_mechanism.as_deref().unwrap_or("none")
+        tracing::info!(
+            protocol = config.security.security_protocol.as_deref().unwrap_or("none"),
+            mechanism = config.security.sasl_mechanism.as_deref().unwrap_or("none"),
+            "Kafka security configured"
         );
     }
 
     let kafka_stats: SharedKafkaStats = Arc::new(std::sync::RwLock::new(None));
-    let admin_consumer: AdminConsumer =
-        admin::create_admin_consumer(&config.kafka_brokers, kafka_stats.clone(), &config.security)
-            .expect("Failed to create admin consumer");
+    let admin_consumer: AdminConsumer = match admin::create_admin_consumer(
+        &config.kafka_brokers,
+        kafka_stats.clone(),
+        &config.security,
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to create admin consumer — exiting");
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                e.to_string(),
+            ));
+        }
+    };
     let admin_consumer = Arc::new(Mutex::new(admin_consumer));
 
     let stats_engine = StatsEngine::new();
@@ -318,16 +359,16 @@ async fn main() -> std::io::Result<()> {
     let mongo_store: SharedMongoStore = if let Some(uri) = &config.mongo_uri {
         match MongoStore::new(uri).await {
             Ok(store) => {
-                log::info!("MongoDB persistence enabled");
+                tracing::info!("MongoDB persistence enabled");
                 Arc::new(Some(store))
             }
             Err(e) => {
-                log::warn!("Failed to connect to MongoDB ({}): {} — persistence disabled", uri, e);
+                tracing::warn!("Failed to connect to MongoDB ({}): {} — persistence disabled", uri, e);
                 Arc::new(None)
             }
         }
     } else {
-        log::info!("MongoDB not configured — persistence disabled");
+        tracing::info!("MongoDB not configured — persistence disabled");
         Arc::new(None)
     };
 
@@ -351,13 +392,21 @@ async fn main() -> std::io::Result<()> {
     // Background task: stats broadcaster (every 1 second)
     let stats_for_broadcast = stats_engine.clone();
     let ws_tx_stats = ws_tx.clone();
+    let shutdown_stats = shutdown.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
         loop {
-            interval.tick().await;
-            let all_stats = stats_for_broadcast.get_all_stats().await;
-            for stats in all_stats {
-                let _ = ws_tx_stats.send(WsMessage::StatsUpdate(stats));
+            tokio::select! {
+                _ = shutdown_stats.cancelled() => {
+                    tracing::info!("Stats broadcaster shutting down");
+                    break;
+                }
+                _ = interval.tick() => {
+                    let all_stats = stats_for_broadcast.get_all_stats().await;
+                    for stats in all_stats {
+                        let _ = ws_tx_stats.send(WsMessage::StatsUpdate(stats));
+                    }
+                }
             }
         }
     });
@@ -365,13 +414,21 @@ async fn main() -> std::io::Result<()> {
     // Background task: minute aggregator
     let stats_for_agg = stats_engine.clone();
     let storage_for_agg = storage.clone();
+    let shutdown_agg = shutdown.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         loop {
-            interval.tick().await;
-            let snapshots = stats_for_agg.snapshot_and_reset_minute().await;
-            for (topic, point) in snapshots {
-                storage_for_agg.append(&topic, point).await;
+            tokio::select! {
+                _ = shutdown_agg.cancelled() => {
+                    tracing::info!("Minute aggregator shutting down");
+                    break;
+                }
+                _ = interval.tick() => {
+                    let snapshots = stats_for_agg.snapshot_and_reset_minute().await;
+                    for (topic, point) in snapshots {
+                        storage_for_agg.append(&topic, point).await;
+                    }
+                }
             }
         }
     });
@@ -380,31 +437,37 @@ async fn main() -> std::io::Result<()> {
     let tm_for_discover = topic_manager.clone();
     let admin_for_discover = admin_consumer.clone();
     let tracked_for_discover = tracked_topics.clone();
+    let shutdown_discover = shutdown.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         loop {
-            interval.tick().await;
-            let consumer = admin_for_discover.clone();
-            let topics = web::block(move || {
-                let consumer = consumer.blocking_lock();
-                admin::list_topics(&consumer)
-            })
-            .await;
+            tokio::select! {
+                _ = shutdown_discover.cancelled() => {
+                    tracing::info!("Topic discovery shutting down");
+                    break;
+                }
+                _ = interval.tick() => {
+                    let consumer = admin_for_discover.clone();
+                    let topics = web::block(move || {
+                        let consumer = consumer.blocking_lock();
+                        admin::list_topics(&consumer)
+                    })
+                    .await;
 
-            if let Ok(Ok(topic_list)) = topics {
-                let tracked = tracked_for_discover.read().await;
-                if tracked.is_empty() {
-                    // No selection yet — subscribe to all topics (backward-compatible)
-                    drop(tracked);
-                    tm_for_discover.subscribe_all(&topic_list, None).await;
-                } else {
-                    // Only subscribe to tracked topics
-                    let filtered: Vec<String> = topic_list
-                        .into_iter()
-                        .filter(|t| tracked.contains(t))
-                        .collect();
-                    drop(tracked);
-                    tm_for_discover.subscribe_all(&filtered, None).await;
+                    if let Ok(Ok(topic_list)) = topics {
+                        let tracked = tracked_for_discover.read().await;
+                        if tracked.is_empty() {
+                            drop(tracked);
+                            tm_for_discover.subscribe_all(&topic_list, None).await;
+                        } else {
+                            let filtered: Vec<String> = topic_list
+                                .into_iter()
+                                .filter(|t| tracked.contains(t))
+                                .collect();
+                            drop(tracked);
+                            tm_for_discover.subscribe_all(&filtered, None).await;
+                        }
+                    }
                 }
             }
         }
@@ -415,92 +478,104 @@ async fn main() -> std::io::Result<()> {
     let lag_ts_for_collector = lag_timeseries.clone();
     let progress_for_lag = progress_tracker.clone();
     let tracked_for_lag = tracked_topics.clone();
+    let shutdown_lag = shutdown.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
         loop {
-            interval.tick().await;
-            // Only fetch lag for tracked topics (huge speedup on remote brokers)
-            let topics: Vec<String> = tracked_for_lag.read().await.iter().cloned().collect();
-            let consumer = admin_for_lag.clone();
-            let result = web::block(move || {
-                let consumer = consumer.blocking_lock();
-                // Fetch lag for tracked topics
-                let lags = admin::fetch_consumer_lag_for_topics(&consumer, &topics);
-                // Also fetch cluster metadata (brokers, topic/partition counts)
-                let metadata = admin::fetch_cluster_metadata(&consumer);
-                (lags, metadata)
-            })
-            .await;
-
-            if let Ok((lag_result, metadata_result)) = result {
-                // Cache cluster metadata if successful
-                if let Ok(metadata) = metadata_result {
-                    progress_for_lag.update_metadata(metadata).await;
+            tokio::select! {
+                _ = shutdown_lag.cancelled() => {
+                    tracing::info!("Lag collector shutting down");
+                    break;
                 }
+                _ = interval.tick() => {
+                    let topics: Vec<String> = tracked_for_lag.read().await.iter().cloned().collect();
+                    let consumer = admin_for_lag.clone();
+                    let result = web::block(move || {
+                        let consumer = consumer.blocking_lock();
+                        let lags = admin::fetch_consumer_lag_for_topics(&consumer, &topics);
+                        let metadata = admin::fetch_cluster_metadata(&consumer);
+                        (lags, metadata)
+                    })
+                    .await;
 
-                if let Ok(partition_lags) = lag_result {
-                    // Aggregate lag per topic
-                    let mut topic_map: HashMap<String, (i64, i64, i64)> = HashMap::new();
-                    for pl in &partition_lags {
-                        let entry = topic_map.entry(pl.topic.clone()).or_insert((0, 0, 0));
-                        entry.0 += pl.lag;
-                        entry.1 += pl.current_offset;
-                        entry.2 += pl.log_end_offset;
+                    if let Ok((lag_result, metadata_result)) = result {
+                        if let Ok(metadata) = metadata_result {
+                            progress_for_lag.update_metadata(metadata).await;
+                        }
+
+                        if let Ok(partition_lags) = lag_result {
+                            let mut topic_map: HashMap<String, (i64, i64, i64)> = HashMap::new();
+                            for pl in &partition_lags {
+                                let entry = topic_map.entry(pl.topic.clone()).or_insert((0, 0, 0));
+                                entry.0 += pl.lag;
+                                entry.1 += pl.current_offset;
+                                entry.2 += pl.log_end_offset;
+                            }
+
+                            let total_lag: i64 = partition_lags.iter().map(|l| l.lag).sum();
+                            let mut topic_lags: Vec<TopicLag> = topic_map
+                                .into_iter()
+                                .map(|(topic, (lag, current_offset, log_end_offset))| TopicLag {
+                                    topic,
+                                    lag,
+                                    current_offset,
+                                    log_end_offset,
+                                })
+                                .collect();
+                            topic_lags.sort_by(|a, b| a.topic.cmp(&b.topic));
+
+                            let point = LagDataPoint {
+                                timestamp: chrono::Utc::now(),
+                                topic_lags,
+                                total_lag,
+                            };
+                            lag_ts_for_collector.append(point).await;
+                            progress_for_lag.snapshot(&partition_lags).await;
+                        }
                     }
-
-                    let total_lag: i64 = partition_lags.iter().map(|l| l.lag).sum();
-                    let mut topic_lags: Vec<TopicLag> = topic_map
-                        .into_iter()
-                        .map(|(topic, (lag, current_offset, log_end_offset))| TopicLag {
-                            topic,
-                            lag,
-                            current_offset,
-                            log_end_offset,
-                        })
-                        .collect();
-                    topic_lags.sort_by(|a, b| a.topic.cmp(&b.topic));
-
-                    let point = LagDataPoint {
-                        timestamp: chrono::Utc::now(),
-                        topic_lags,
-                        total_lag,
-                    };
-                    lag_ts_for_collector.append(point).await;
-
-                    // Snapshot consumer progress (reuses same watermark data)
-                    progress_for_lag.snapshot(&partition_lags).await;
                 }
             }
         }
     });
 
     // Background task: poll admin consumer for statistics callbacks (every 1 second)
-    // rdkafka statistics callbacks only fire when the consumer is polled.
     let admin_for_poll = admin_consumer.clone();
+    let shutdown_poll = shutdown.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
         loop {
-            interval.tick().await;
-            let consumer = admin_for_poll.clone();
-            let _ = web::block(move || {
-                let consumer = consumer.blocking_lock();
-                consumer.poll(std::time::Duration::from_millis(0));
-            })
-            .await;
+            tokio::select! {
+                _ = shutdown_poll.cancelled() => {
+                    tracing::info!("Admin consumer poller shutting down");
+                    break;
+                }
+                _ = interval.tick() => {
+                    let consumer = admin_for_poll.clone();
+                    let _ = web::block(move || {
+                        let consumer = consumer.blocking_lock();
+                        consumer.poll(std::time::Duration::from_millis(0));
+                    })
+                    .await;
+                }
+            }
         }
     });
 
     let bind_addr = format!("{}:{}", config.server_host, config.server_port);
-    log::info!("Listening on http://{}", bind_addr);
+    tracing::info!(addr = %bind_addr, "Listening");
 
-    HttpServer::new(move || {
+    // Clone shutdown token for the signal handler
+    let shutdown_for_signal = shutdown.clone();
+    let tm_for_shutdown = topic_manager.clone();
+
+    let server = HttpServer::new(move || {
         let cors = Cors::default()
             .allow_any_origin()
             .allow_any_method()
             .allow_any_header();
 
         App::new()
-            .wrap(middleware::Logger::default())
+            .wrap(TracingLogger::default())
             .wrap(cors)
             .app_data(web::Data::new(admin_consumer.clone()))
             .app_data(web::Data::new(stats_engine.clone()))
@@ -616,6 +691,24 @@ async fn main() -> std::io::Result<()> {
             .route("/ws/live", web::get().to(handlers::ws::ws_handler))
     })
     .bind(&bind_addr)?
-    .run()
-    .await
+    .run();
+
+    // Graceful shutdown on SIGINT/SIGTERM
+    tokio::select! {
+        result = server => {
+            tracing::info!("Server stopped");
+            result
+        }
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("Received SIGINT, starting graceful shutdown...");
+            shutdown_for_signal.cancel();
+
+            // Stop all Kafka consumers
+            tracing::info!("Stopping Kafka consumers...");
+            tm_for_shutdown.clear().await;
+
+            tracing::info!("Shutdown complete");
+            Ok(())
+        }
+    }
 }

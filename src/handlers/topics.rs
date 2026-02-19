@@ -1,3 +1,4 @@
+use crate::config;
 use crate::kafka::admin;
 use crate::kafka::admin::AdminConsumer;
 use crate::models::{
@@ -13,10 +14,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
+/// Maximum number of topics that can be toggled in a single request.
+const MAX_TOGGLE_TOPICS: usize = 500;
+
 /// GET /api/topics — list tracked topics with summary stats and alert status.
-/// When topics are being tracked (user made a selection), only returns those topics
-/// using stats from the StatsEngine — no Kafka metadata fetch needed.
-/// Falls back to fetching all topics from Kafka only if no topics are tracked.
 pub async fn get_topics(
     admin_consumer: web::Data<Arc<Mutex<AdminConsumer>>>,
     stats_engine: web::Data<StatsEngine>,
@@ -25,7 +26,6 @@ pub async fn get_topics(
 ) -> HttpResponse {
     let tracked = tracked_topics.read().await;
     let topic_names: Vec<String> = if tracked.is_empty() {
-        // No selection — fall back to Kafka metadata (backward-compatible)
         drop(tracked);
         let consumer = admin_consumer.get_ref().clone();
         let result = web::block(move || {
@@ -47,7 +47,6 @@ pub async fn get_topics(
             }
         }
     } else {
-        // Topics are tracked — return only those, no Kafka call needed
         let names: Vec<String> = tracked.iter().cloned().collect();
         drop(tracked);
         names
@@ -108,14 +107,34 @@ pub async fn get_available_topics(
 }
 
 /// POST /api/topics/toggle — enable or disable topics for monitoring.
-/// If `start_from` is provided in the request body, immediately subscribes
-/// to the topics with the specified start position.
 pub async fn toggle_topics(
     body: web::Json<TopicToggleRequest>,
     tracked_topics: web::Data<Arc<RwLock<HashSet<String>>>>,
     topic_manager: web::Data<Arc<TopicManager>>,
 ) -> HttpResponse {
     let req = body.into_inner();
+
+    // Validate: not too many topics
+    if req.topics.len() > MAX_TOGGLE_TOPICS {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": format!("too many topics ({}, max {})", req.topics.len(), MAX_TOGGLE_TOPICS)
+        }));
+    }
+
+    // Validate: no empty topic names
+    if req.topics.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "topics list must not be empty"
+        }));
+    }
+
+    // Validate each topic name
+    for topic in &req.topics {
+        if let Err(e) = config::validate_topic_name(topic) {
+            return HttpResponse::BadRequest().json(serde_json::json!({ "error": e }));
+        }
+    }
+
     let mut tracked = tracked_topics.write().await;
 
     if req.enabled {
@@ -131,15 +150,14 @@ pub async fn toggle_topics(
     let current: Vec<String> = tracked.iter().cloned().collect();
     drop(tracked);
 
-    log::info!(
-        "Topics toggled: enabled={}, topics={:?}, start_from={:?}, current_tracked={:?}",
-        req.enabled,
-        req.topics,
-        req.start_from,
-        current
+    tracing::info!(
+        enabled = req.enabled,
+        topics = ?req.topics,
+        start_from = ?req.start_from,
+        tracked_count = current.len(),
+        "Topics toggled"
     );
 
-    // If enabling with a start position, trigger immediate subscription
     if req.enabled {
         topic_manager.subscribe_all(&req.topics, req.start_from).await;
     }
@@ -150,7 +168,6 @@ pub async fn toggle_topics(
 }
 
 /// POST /api/reset — stop all consumers and clear all stats, alerts, and storage.
-/// Used when the dashboard needs a full reset (e.g., re-selecting topics with a new offset).
 pub async fn reset_all(
     topic_manager: web::Data<Arc<TopicManager>>,
     stats_engine: web::Data<StatsEngine>,
@@ -160,25 +177,19 @@ pub async fn reset_all(
     lag_timeseries: web::Data<LagTimeSeries>,
     tracked_topics: web::Data<Arc<RwLock<HashSet<String>>>>,
 ) -> HttpResponse {
-    // Stop all consumers
     topic_manager.clear().await;
-
-    // Clear tracked topics set
     tracked_topics.write().await.clear();
-
-    // Clear all backend state
     stats_engine.clear().await;
     alert_engine.clear_alerts().await;
     progress_tracker.clear().await;
     storage.clear().await;
     lag_timeseries.clear().await;
 
-    log::info!("Dashboard reset: all consumers stopped, stats/alerts/storage/progress cleared");
+    tracing::info!("Dashboard reset: all consumers stopped, stats/alerts/storage/progress cleared");
     HttpResponse::Ok().json(serde_json::json!({ "status": "reset" }))
 }
 
 /// POST /api/disconnect — stop all consumers without clearing stats.
-/// Used to disconnect from the Kafka broker while preserving dashboard data.
 pub async fn disconnect(
     topic_manager: web::Data<Arc<TopicManager>>,
     tracked_topics: web::Data<Arc<RwLock<HashSet<String>>>>,
@@ -188,6 +199,6 @@ pub async fn disconnect(
     tracked_topics.write().await.clear();
     progress_tracker.clear().await;
 
-    log::info!("Disconnected: all consumers stopped, progress cleared");
+    tracing::info!("Disconnected: all consumers stopped, progress cleared");
     HttpResponse::Ok().json(serde_json::json!({ "status": "disconnected" }))
 }

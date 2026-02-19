@@ -126,7 +126,7 @@ pub fn fetch_consumer_lag_for_topics(
                     }
                 }
                 Err(e) => {
-                    log::warn!("Failed to fetch metadata for topic {}: {}", topic, e);
+                    tracing::warn!("Failed to fetch metadata for topic {}: {}", topic, e);
                 }
             }
         }
@@ -156,7 +156,7 @@ fn fetch_partition_watermarks(
                 });
             }
             Err(e) => {
-                log::warn!(
+                tracing::warn!(
                     "Failed to fetch watermarks for {}-{}: {}",
                     topic_name,
                     pid,
