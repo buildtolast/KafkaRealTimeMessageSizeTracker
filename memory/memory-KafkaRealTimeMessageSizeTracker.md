@@ -56,6 +56,7 @@ src/
 │   ├── broker.rs        — GET/POST /api/broker, GET /api/broker/discover, GET /api/cluster/insights
 │   ├── browse.rs        — GET /api/browse/{topic} (with ?preset=beginning|1h|1d|latest), GET /api/browse/{topic}/download/{partition}/{offset}, GET /api/snapshot
 │   ├── progress.rs      — GET /api/consumer/progress (cached, no Kafka call), GET /api/consumer/progress/timeseries
+│   ├── metrics.rs       — GET /api/metrics/process (CPU%, RSS memory, virtual memory, uptime via sysinfo crate)
 │   ├── mongo.rs         — GET /api/persisted/messages, GET /api/persisted/alerts, GET /api/persisted/status
 │   └── ws.rs            — WebSocket /ws/live (rate-limited 50 events/sec, topic filtering)
 └── frontend/
@@ -128,6 +129,7 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 | `/api/persisted/messages` | GET | Query persisted oversized messages from MongoDB |
 | `/api/persisted/alerts` | GET | Query persisted alerts from MongoDB |
 | `/api/persisted/status` | GET | MongoDB persistence status (connected, collection counts) |
+| `/api/metrics/process` | GET | Process metrics (CPU%, RSS memory, virtual memory, uptime) |
 | `/ws/live` | GET | WebSocket stream (SizeEvent + StatsUpdate + Alert) |
 
 ## Frontend
@@ -154,6 +156,8 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - **Live feed mini-chart**: Dual-axis timeseries (avg size cyan line + msg/s magenta dashed line), per-second rolling buffer (120 pts), crosshair hover with tooltip. Switchable modes: live | 1h | 6h | 24h | 7d
 - **Alerts mini-chart**: Dual-line chart (warnings yellow + criticals red), per-10-second buckets, crosshair hover. Switchable modes: live | 1h | 6h | all
 - **Global history chart**: Dual-axis per topic — left Y: avg_bytes (solid colored lines), right Y: message_count (dashed colored lines). Crosshair hover with per-topic tooltip
+- **Process metrics widget**: Header-embedded mini widget showing real-time CPU% (with sparkline), RSS memory (with sparkline), and uptime. Polls `/api/metrics/process` every 3s. Color-coded CPU (green <50%, yellow 50-80%, red >80%). Hover tooltip shows peak CPU/memory and virtual memory
+- **What's Happening overlay**: Real-time plain-English system narrative (last 30s client-side buffer), with time range selection (30s/1h/6h/12h) using historical REST API data, performance advisory tips about CPU-intensive overlays
 - **WebSocket**: auto-reconnect with exponential backoff
 
 ## MongoDB Persistence
@@ -183,4 +187,4 @@ Kafka Topic -> StreamConsumer (start position: latest/beginning/timestamp/offset
 - **scripts/seed-sizes.sh**: 4 topics (orders/users/logs/metrics), piped stdin approach, alert simulation every 10th/15th/25th iteration (1.2MB/12MB/2MB)
 
 ## Dependencies
-actix-web 4, actix-ws 0.3, actix-rt 2, actix-cors 0.7, rdkafka 0.37, mongodb 3, tokio 1, serde 1, serde_json 1, chrono 0.4, env_logger 0.11, log 0.4, clap 4, thiserror 2, rand 0.8, futures-util 0.3, base64 0.22
+actix-web 4, actix-ws 0.3, actix-rt 2, actix-cors 0.7, rdkafka 0.37, mongodb 3, sysinfo 0.33, tokio 1, serde 1, serde_json 1, chrono 0.4, env_logger 0.11, log 0.4, clap 4, thiserror 2, rand 0.8, futures-util 0.3, base64 0.22

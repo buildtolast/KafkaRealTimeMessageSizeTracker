@@ -2,6 +2,7 @@ pub mod alerts;
 pub mod broker;
 pub mod browse;
 pub mod history;
+pub mod metrics;
 pub mod mongo;
 pub mod progress;
 pub mod stats;

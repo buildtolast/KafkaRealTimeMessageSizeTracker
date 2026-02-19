@@ -1451,6 +1451,52 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
   0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--green); }
   50% { opacity: 0.4; box-shadow: none; }
 }
+
+/* ── Process Metrics Mini Widget ── */
+.perf-widget {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color var(--transition);
+  position: relative;
+}
+.perf-widget:hover { border-color: var(--border-bright); }
+.perf-metric {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.perf-metric canvas {
+  border-radius: 2px;
+}
+.perf-metric .perf-label { color: var(--text-muted); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; }
+.perf-metric .perf-value { color: var(--text); font-weight: 600; min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+.perf-metric .perf-unit { color: var(--text-muted); font-size: 9px; }
+.perf-uptime { color: var(--text-muted); font-size: 9px; border-left: 1px solid var(--border); padding-left: 8px; }
+.perf-widget-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  z-index: 200;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.perf-widget:hover .perf-widget-tooltip { display: block; }
 </style>
 </head>
 <body>
@@ -1467,6 +1513,22 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
     <div class="conn-status">
       <span class="conn-dot" id="connDot"></span>
       <span id="connLabel">disconnected</span>
+    </div>
+    <div class="perf-widget" id="perfWidget" title="Process performance metrics">
+      <div class="perf-metric">
+        <span class="perf-label">cpu</span>
+        <canvas id="perfCpuChart" width="48" height="20"></canvas>
+        <span class="perf-value" id="perfCpuVal">—</span>
+        <span class="perf-unit">%</span>
+      </div>
+      <div class="perf-metric">
+        <span class="perf-label">mem</span>
+        <canvas id="perfMemChart" width="48" height="20"></canvas>
+        <span class="perf-value" id="perfMemVal">—</span>
+        <span class="perf-unit">MB</span>
+      </div>
+      <div class="perf-uptime" id="perfUptime">—</div>
+      <div class="perf-widget-tooltip" id="perfTooltip">Loading process metrics...</div>
     </div>
     <div class="header-spacer"></div>
     <div class="theme-switcher">
@@ -4260,6 +4322,117 @@ async function startDashboard() {
   setTimeout(fetchGlobalHistory, 10000);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//   PROCESS METRICS WIDGET
+// ═══════════════════════════════════════════════════════════════════
+const perfHistory = { cpu: [], mem: [] };
+const PERF_MAX_POINTS = 30;
+let perfInterval = null;
+
+function formatUptime(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function drawPerfSparkline(canvasId, data, maxVal, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const dpr = window.devicePixelRatio || 1;
+
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  ctx.scale(dpr, dpr);
+
+  ctx.clearRect(0, 0, w, h);
+
+  if (data.length < 2) return;
+
+  const cap = Math.max(maxVal, 1);
+  const step = w / (PERF_MAX_POINTS - 1);
+
+  // Fill area
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  data.forEach((v, i) => {
+    const x = i * step;
+    const y = h - (Math.min(v, cap) / cap) * (h - 2);
+    if (i === 0) ctx.lineTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.lineTo((data.length - 1) * step, h);
+  ctx.closePath();
+  ctx.fillStyle = color + '18';
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = i * step;
+    const y = h - (Math.min(v, cap) / cap) * (h - 2);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+async function fetchProcessMetrics() {
+  try {
+    const res = await fetch('/api/metrics/process');
+    if (!res.ok) return;
+    const m = await res.json();
+
+    // Buffer history
+    perfHistory.cpu.push(m.cpu_usage_percent);
+    perfHistory.mem.push(m.memory_rss_mb);
+    if (perfHistory.cpu.length > PERF_MAX_POINTS) perfHistory.cpu.shift();
+    if (perfHistory.mem.length > PERF_MAX_POINTS) perfHistory.mem.shift();
+
+    // Update values
+    document.getElementById('perfCpuVal').textContent = m.cpu_usage_percent.toFixed(1);
+    document.getElementById('perfMemVal').textContent = m.memory_rss_mb.toFixed(1);
+    document.getElementById('perfUptime').textContent = formatUptime(m.uptime_seconds);
+
+    // CPU color: green < 50%, yellow 50-80%, red > 80%
+    const cpuEl = document.getElementById('perfCpuVal');
+    if (m.cpu_usage_percent > 80) cpuEl.style.color = 'var(--red)';
+    else if (m.cpu_usage_percent > 50) cpuEl.style.color = 'var(--yellow)';
+    else cpuEl.style.color = 'var(--green)';
+
+    // Draw sparklines
+    const cpuMax = Math.max(100, ...perfHistory.cpu);
+    const memMax = Math.max(...perfHistory.mem) * 1.2 || 100;
+    drawPerfSparkline('perfCpuChart', perfHistory.cpu, cpuMax, getComputedStyle(document.documentElement).getPropertyValue('--cyan').trim());
+    drawPerfSparkline('perfMemChart', perfHistory.mem, memMax, getComputedStyle(document.documentElement).getPropertyValue('--magenta').trim());
+
+    // Tooltip
+    const vmMb = (m.virtual_memory_bytes / (1024 * 1024)).toFixed(1);
+    document.getElementById('perfTooltip').innerHTML =
+      `CPU: ${m.cpu_usage_percent.toFixed(1)}% &nbsp;|&nbsp; RSS: ${m.memory_rss_mb.toFixed(1)} MB &nbsp;|&nbsp; Virtual: ${vmMb} MB<br>` +
+      `Uptime: ${formatUptime(m.uptime_seconds)} &nbsp;|&nbsp; Peak CPU: ${Math.max(...perfHistory.cpu).toFixed(1)}% &nbsp;|&nbsp; Peak Mem: ${Math.max(...perfHistory.mem).toFixed(1)} MB`;
+  } catch (e) {
+    // Silently ignore — metrics are optional
+  }
+}
+
+function startPerfMetrics() {
+  if (perfInterval) return;
+  fetchProcessMetrics();
+  perfInterval = setInterval(fetchProcessMetrics, 3000);
+}
+
+function stopPerfMetrics() {
+  if (perfInterval) { clearInterval(perfInterval); perfInterval = null; }
+}
+
 async function init() {
   loadTheme();
   updateBrokerButtons(); // Disable action buttons until connected
@@ -4292,6 +4465,9 @@ async function init() {
     document.getElementById('topicPickerOverlay').classList.add('hidden');
     startDashboard();
   }
+
+  // Start process metrics polling (independent of Kafka connection)
+  startPerfMetrics();
 }
 
 /* ── Panel Resize Drag Handlers ── */

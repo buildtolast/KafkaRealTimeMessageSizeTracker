@@ -333,6 +333,8 @@ async fn main() -> std::io::Result<()> {
 
     let progress_tracker = ProgressTracker::new();
 
+    let metrics_collector = Arc::new(handlers::metrics::ProcessMetricsCollector::new());
+
     let topic_manager = Arc::new(TopicManager::new(
         config.kafka_brokers.clone(),
         config.consumer_group.clone(),
@@ -513,6 +515,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(kafka_stats.clone()))
             .app_data(web::Data::new(security_config.clone()))
             .app_data(web::Data::new(progress_tracker.clone()))
+            .app_data(web::Data::new(metrics_collector.clone()))
             .route("/", web::get().to(index))
             .route("/api/topics", web::get().to(handlers::topics::get_topics))
             .route(
@@ -605,6 +608,10 @@ async fn main() -> std::io::Result<()> {
             .route(
                 "/api/persisted/status",
                 web::get().to(handlers::mongo::get_persistence_status),
+            )
+            .route(
+                "/api/metrics/process",
+                web::get().to(handlers::metrics::get_process_metrics),
             )
             .route("/ws/live", web::get().to(handlers::ws::ws_handler))
     })
