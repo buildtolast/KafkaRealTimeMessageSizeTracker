@@ -121,7 +121,7 @@ run_cargo() {
 run_full_docker() {
     echo "Starting full stack (Kafka + Tracker + Seed Producer + MongoDB)..."
     echo ""
-    docker compose -f docker-compose.full.yml up -d
+    docker compose -f docker-compose.full.yml up -d --build
     echo ""
     echo "Dashboard: http://localhost:5688"
     echo "Kafka external: localhost:9094"
@@ -133,7 +133,7 @@ run_full_docker() {
 run_docker() {
     echo "Starting app-only Docker (connecting to ${KAFKA_BROKERS})..."
     echo ""
-    KAFKA_BROKERS="${KAFKA_BROKERS}" docker compose up -d
+    KAFKA_BROKERS="${KAFKA_BROKERS}" docker compose up -d --build
     echo ""
     echo "Dashboard: http://localhost:5688"
     echo ""
