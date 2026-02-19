@@ -1,5 +1,15 @@
 # TODO — KafkaRealTimeMessageSizeTracker
 
+## Pre-built Distribution (Reduce First-Run Build Time)
+
+Currently first-time users must compile Rust from source inside Docker (~5-10 min, especially with rdkafka cmake-build). These options eliminate that wait:
+
+- [ ] **Publish Pre-built Docker Images to GHCR** — Build and push a ready-to-run image to GitHub Container Registry (`ghcr.io/buildtolast/kafka-message-size-tracker:latest`). Update `docker-compose.full.yml` and `docker-compose.yml` to use `image:` instead of `build: .`. Users just `docker pull` and run — zero compile time (~30s first pull).
+
+- [ ] **GitHub Actions CI/CD Pipeline** — Automate image builds on every push/tag. Workflow: checkout → multi-platform build (linux/amd64 + linux/arm64) → push to ghcr.io → tag as `latest` + semver. Users always get the latest pre-built image automatically.
+
+- [ ] **Pre-compiled Binary Releases** — Publish native binaries (Linux x86_64, macOS arm64/x86_64) as GitHub Releases using `cargo build --release`. Users download a single binary — no Docker or Rust toolchain needed. They just need a Kafka cluster to connect to.
+
 ## High Impact
 
 - [ ] **Message Schema/Format Analysis** — Auto-detect message formats (JSON, Avro, Protobuf, plain text) and show format distribution per topic. For JSON messages, show a collapsible schema tree with field frequency/types. Useful for schema drift detection.
