@@ -1948,6 +1948,12 @@ body.resizing .resize-handle-v, body.resizing-row .resize-handle-h { pointer-eve
     <div class="happening-header">
       <span class="prompt">&gt;</span>
       <span class="title">whats_happening</span>
+      <div id="happeningRangeBtns" style="margin-left:12px;display:flex;gap:2px">
+        <button class="mini-range-btn active" onclick="setHappeningRange('30s',this)">30s</button>
+        <button class="mini-range-btn" onclick="setHappeningRange('1h',this)">1h</button>
+        <button class="mini-range-btn" onclick="setHappeningRange('6h',this)">6h</button>
+        <button class="mini-range-btn" onclick="setHappeningRange('12h',this)">12h</button>
+      </div>
       <div style="flex:1"></div>
       <button class="btn" onclick="refreshWhatsHappening()" style="font-size:11px">[refresh]</button>
       <button class="btn" onclick="closeWhatsHappening()" style="font-size:11px">[close]</button>
@@ -2555,6 +2561,8 @@ function resetDashboardState() {
   feedBucket = { ts: 0, totalSize: 0, count: 0 };
   alertBucket = { ts: 0, warnings: 0, criticals: 0 };
   happeningStatsBuffer.length = 0;
+  happeningRange = '30s';
+  document.querySelectorAll('#happeningRangeBtns .mini-range-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
   document.getElementById('statusTopics').textContent = '0';
   document.getElementById('statusAlerts').textContent = '0';
   document.getElementById('statusEvents').textContent = '0';
@@ -5441,7 +5449,9 @@ function renderProgressChart() {
 const happeningStatsBuffer = [];
 const HAPPENING_WINDOW_MS = 30000;
 const HAPPENING_REFRESH_MS = 5000;
+const HAPPENING_HIST_REFRESH_MS = 30000;
 let happeningRefreshInterval = null;
+let happeningRange = '30s';
 
 function bufferStatsSnapshot(stats) {
   happeningStatsBuffer.push({
@@ -5463,9 +5473,16 @@ function bufferStatsSnapshot(stats) {
 
 function openWhatsHappening() {
   document.getElementById('happeningOverlay').classList.add('active');
-  renderWhatsHappening();
-  if (happeningRefreshInterval) clearInterval(happeningRefreshInterval);
-  happeningRefreshInterval = setInterval(renderWhatsHappening, HAPPENING_REFRESH_MS);
+  // Keep last selected range for better UX
+  if (happeningRange === '30s') {
+    renderWhatsHappening();
+    if (happeningRefreshInterval) clearInterval(happeningRefreshInterval);
+    happeningRefreshInterval = setInterval(renderWhatsHappening, HAPPENING_REFRESH_MS);
+  } else {
+    fetchHappeningHistory(happeningRange);
+    if (happeningRefreshInterval) clearInterval(happeningRefreshInterval);
+    happeningRefreshInterval = setInterval(() => fetchHappeningHistory(happeningRange), HAPPENING_HIST_REFRESH_MS);
+  }
 }
 
 function closeWhatsHappening() {
@@ -5477,7 +5494,175 @@ function closeWhatsHappening() {
 }
 
 function refreshWhatsHappening() {
-  renderWhatsHappening();
+  if (happeningRange === '30s') {
+    renderWhatsHappening();
+  } else {
+    fetchHappeningHistory(happeningRange);
+  }
+}
+
+function setHappeningRange(range, btn) {
+  happeningRange = range;
+  document.querySelectorAll('#happeningRangeBtns .mini-range-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  if (happeningRefreshInterval) clearInterval(happeningRefreshInterval);
+
+  if (range === '30s') {
+    renderWhatsHappening();
+    happeningRefreshInterval = setInterval(renderWhatsHappening, HAPPENING_REFRESH_MS);
+  } else {
+    fetchHappeningHistory(range);
+    happeningRefreshInterval = setInterval(() => fetchHappeningHistory(range), HAPPENING_HIST_REFRESH_MS);
+  }
+}
+
+async function fetchHappeningHistory(range) {
+  const narrativeEl = document.getElementById('happeningNarrative');
+  narrativeEl.innerHTML = '<span style="color:var(--text-dim)">loading historical data...</span>';
+
+  const apiRange = range === '12h' ? '720' : range;
+  const rangeMs = { '1h': 3600000, '6h': 21600000, '12h': 43200000 }[range] || 3600000;
+
+  try {
+    const tracked = getTrackedTopics();
+    const topics = tracked.length > 0 ? tracked : state.topics;
+
+    // Fetch history + alerts in parallel
+    const historyPromises = topics.map(t =>
+      fetch(`/api/history/${encodeURIComponent(t)}?range=${apiRange}`).then(r => r.ok ? r.json() : [])
+    );
+    const alertsPromise = fetch('/api/alerts?limit=1000').then(r => r.ok ? r.json() : []);
+
+    const results = await Promise.all([...historyPromises, alertsPromise]);
+    const alerts = results.pop();
+    const historyData = {};
+    topics.forEach((t, i) => { historyData[t] = results[i] || []; });
+
+    renderHappeningHistorical(historyData, alerts, range, rangeMs);
+  } catch (e) {
+    narrativeEl.innerHTML = `<span style="color:var(--red)">error loading data: ${escapeHtml(e.message)}</span>`;
+  }
+}
+
+function renderHappeningHistorical(historyData, allAlerts, range, rangeMs) {
+  const now = Date.now();
+  const cutoff = now - rangeMs;
+  const rangeLabel = { '1h': 'hour', '6h': '6 hours', '12h': '12 hours' }[range] || range;
+  const topics = Object.keys(historyData);
+
+  // Filter alerts to time window
+  const alerts = allAlerts.filter(a => new Date(a.timestamp).getTime() >= cutoff);
+
+  // Aggregate per-topic from history data points
+  const topicSummary = {};
+  let grandTotalMessages = 0, grandTotalBytes = 0;
+  for (const t of topics) {
+    const points = historyData[t];
+    if (!points || points.length === 0) {
+      topicSummary[t] = { messages: 0, totalBytes: 0, avgBytes: 0, maxBytes: 0, p95: 0, points: 0 };
+      continue;
+    }
+    let messages = 0, totalBytes = 0, maxBytes = 0, maxP95 = 0, sumAvg = 0;
+    for (const p of points) {
+      messages += p.message_count || 0;
+      totalBytes += p.total_bytes || 0;
+      if ((p.max_bytes || 0) > maxBytes) maxBytes = p.max_bytes;
+      if ((p.p95 || 0) > maxP95) maxP95 = p.p95;
+      sumAvg += p.avg_bytes || 0;
+    }
+    topicSummary[t] = {
+      messages, totalBytes, maxBytes, p95: maxP95,
+      avgBytes: points.length > 0 ? sumAvg / points.length : 0,
+      points: points.length,
+    };
+    grandTotalMessages += messages;
+    grandTotalBytes += totalBytes;
+  }
+
+  const lines = [];
+
+  // Line 1: Activity overview
+  if (topics.length === 0 || grandTotalMessages === 0) {
+    lines.push(`No data recorded in the last <span class="hl-rate">${rangeLabel}</span>.`);
+  } else {
+    let line = `Over the last <span class="hl-rate">${rangeLabel}</span>, processed`;
+    line += ` <span class="hl-rate">${grandTotalMessages.toLocaleString()}</span> messages`;
+    line += ` across <span class="hl-rate">${topics.length}</span> topic${topics.length !== 1 ? 's' : ''}`;
+    line += ` totaling <span class="hl-size">${formatBytes(grandTotalBytes)}</span>.`;
+    lines.push(line);
+  }
+
+  // Line 2: Outliers
+  if (topics.length > 0 && grandTotalMessages > 0) {
+    const parts = [];
+
+    // Heaviest topic by volume
+    const heaviest = topics.reduce((best, t) =>
+      topicSummary[t].totalBytes > topicSummary[best].totalBytes ? t : best, topics[0]);
+    if (topicSummary[heaviest].totalBytes > 0 && topics.length > 1) {
+      parts.push(`Heaviest: <span class="hl-topic">${escapeHtml(heaviest)}</span> (<span class="hl-size">${formatBytes(topicSummary[heaviest].totalBytes)}</span>, avg <span class="hl-size">${formatBytes(topicSummary[heaviest].avgBytes)}</span>/msg)`);
+    }
+
+    // Largest single message
+    let largestTopic = topics[0], largestSize = 0;
+    for (const t of topics) {
+      if (topicSummary[t].maxBytes > largestSize) {
+        largestSize = topicSummary[t].maxBytes;
+        largestTopic = t;
+      }
+    }
+    if (largestSize > 0) {
+      parts.push(`Largest message: <span class="hl-size">${formatBytes(largestSize)}</span> on <span class="hl-topic">${escapeHtml(largestTopic)}</span>`);
+    }
+
+    // Quietest topic
+    const quietest = topics.reduce((best, t) =>
+      topicSummary[t].messages < topicSummary[best].messages ? t : best, topics[0]);
+    if (topicSummary[quietest].messages === 0 && topics.length > 1) {
+      const silent = topics.filter(t => topicSummary[t].messages === 0);
+      if (silent.length <= 2) {
+        parts.push(`Silent: <span class="hl-topic">${silent.map(escapeHtml).join(', ')}</span>`);
+      } else {
+        parts.push(`<span class="hl-topic">${silent.length}</span> topics had no activity`);
+      }
+    }
+
+    if (parts.length > 0) lines.push(parts.join('. ') + '.');
+  }
+
+  // Line 3: Alerts
+  if (alerts.length > 0) {
+    const criticals = alerts.filter(a => a.severity === 'critical');
+    const warnings = alerts.filter(a => a.severity !== 'critical');
+
+    let line = `<span class="hl-alert">${alerts.length} alert${alerts.length !== 1 ? 's' : ''}</span> in the last ${rangeLabel}`;
+    if (criticals.length > 0 && warnings.length > 0) {
+      line += ` (<span class="hl-alert">${criticals.length} critical</span>, <span class="hl-warn">${warnings.length} warning</span>)`;
+    } else if (criticals.length > 0) {
+      line += ` (<span class="hl-alert">${criticals.length} critical</span>)`;
+    } else {
+      line += ` (<span class="hl-warn">${warnings.length} warning</span>)`;
+    }
+    line += '.';
+
+    if (criticals.length > 0) {
+      const worst = criticals.reduce((m, a) => a.message_size > m.message_size ? a : m, criticals[0]);
+      line += ` Worst: <span class="hl-size">${formatBytes(worst.message_size)}</span> on <span class="hl-topic">${escapeHtml(worst.topic)}</span>.`;
+    }
+    lines.push(line);
+  } else if (topics.length > 0 && grandTotalMessages > 0) {
+    lines.push(`<span class="hl-ok">No alerts</span> in the last ${rangeLabel} \u2014 all messages within thresholds.`);
+  }
+
+  // Line 4: Performance tip
+  lines.push(buildPerformanceTip(null));
+
+  // Render
+  const narrativeEl = document.getElementById('happeningNarrative');
+  const timestampEl = document.getElementById('happeningTimestamp');
+  narrativeEl.innerHTML = lines.join('\n\n');
+  timestampEl.innerHTML = `<span><span class="happening-pulse"></span>auto-refreshes every ${HAPPENING_HIST_REFRESH_MS / 1000}s</span><span>updated ${formatTime(now)}</span>`;
 }
 
 function renderWhatsHappening() {
@@ -5595,6 +5780,10 @@ function renderWhatsHappening() {
     lines.push('<span class="hl-ok">No alerts</span> \u2014 all messages within configured thresholds.');
   }
 
+  // Line 4: Performance tip
+  const totalMsgPerSec = topics.reduce((s, t) => s + topicAgg[t].latestMsgPerSec, 0);
+  lines.push(buildPerformanceTip(totalMsgPerSec));
+
   // Render
   const narrativeEl = document.getElementById('happeningNarrative');
   const timestampEl = document.getElementById('happeningTimestamp');
@@ -5606,6 +5795,23 @@ function renderWhatsHappening() {
   }
 
   timestampEl.innerHTML = `<span><span class="happening-pulse"></span>auto-refreshes every ${HAPPENING_REFRESH_MS / 1000}s</span><span>updated ${formatTime(now)}</span>`;
+}
+
+function buildPerformanceTip(msgPerSec) {
+  const openOverlays = [];
+  if (document.getElementById('insightsOverlay')?.classList.contains('active')) openOverlays.push('cluster_insights');
+  if (document.getElementById('healthOverlay')?.classList.contains('active')) openOverlays.push('health_report');
+  if (document.getElementById('progressOverlay')?.classList.contains('active')) openOverlays.push('consumer_progress');
+
+  let tip = '';
+  if (msgPerSec !== null && msgPerSec > 100 && openOverlays.length > 0) {
+    tip = `<span style="color:var(--yellow)">Tip:</span> High throughput (${formatRate(msgPerSec)} msg/s) with ${openOverlays.length} overlay${openOverlays.length !== 1 ? 's' : ''} open (${openOverlays.join(', ')}). Close unused overlays to reduce CPU usage.`;
+  } else if (openOverlays.length >= 2) {
+    tip = `<span style="color:var(--yellow)">Tip:</span> ${openOverlays.length} overlays open (${openOverlays.join(', ')}). Each auto-refreshes every 15s with chart rendering. Close unused ones to keep the dashboard responsive.`;
+  } else {
+    tip = '<span style="color:var(--text-muted)">Performance: Overlays with charts (cluster_insights, health_report, consumer_progress) auto-refresh every 15s. Close them when not needed to keep the dashboard responsive.</span>';
+  }
+  return tip;
 }
 
 // Start
